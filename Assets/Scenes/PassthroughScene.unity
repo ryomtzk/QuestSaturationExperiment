@@ -614,7 +614,6 @@ MonoBehaviour:
   condition: 1
   normalScale: 0.2
   hoveredScale: 0.24
-  emissionStrength: 0.6
 --- !u!135 &573630443
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1595,6 +1594,131 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!1 &1567257842
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1567257848}
+  - component: {fileID: 1567257847}
+  - component: {fileID: 1567257846}
+  - component: {fileID: 1567257845}
+  - component: {fileID: 1567257844}
+  - component: {fileID: 1567257843}
+  m_Layer: 0
+  m_Name: '[QSE] Operator'
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1567257843
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1567257842}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e37cf31ab56142d7a1b23ccfcd894de1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: QuestSaturation.Runtime::QuestSaturation.OperatorPanel
+  experiment: {fileID: 798231957}
+  freeControl: {fileID: 1567257846}
+  sessionLogger: {fileID: 1567257844}
+  head: {fileID: 963335135}
+  distance: 0.8
+  verticalOffset: -0.05
+  sizePx: {x: 640, y: 520}
+  metersPerPixel: 0.001
+  fontSize: 22
+  refreshHz: 10
+--- !u!114 &1567257844
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1567257842}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6363a33301c1456ea28b269de3a07b8b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: QuestSaturation.Runtime::QuestSaturation.SessionLogger
+  experiment: {fileID: 798231957}
+  freeControl: {fileID: 1567257846}
+  shortcuts: {fileID: 1567257845}
+  settingsStore: {fileID: 1567257847}
+  idleSampleHz: 10
+  flushIntervalSec: 1
+  resumeTimeoutSec: 3
+--- !u!114 &1567257845
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1567257842}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eef76eccce9343499c513fb3e0e4528d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: QuestSaturation.Runtime::QuestSaturation.ControllerShortcuts
+  experiment: {fileID: 798231957}
+  freeControl: {fileID: 1567257846}
+  panel: {fileID: 1567257843}
+  menuHoldSec: 1.5
+  stopHoldSec: 1
+  hapticSec: 0.1
+  hapticAmplitude: 0.6
+--- !u!114 &1567257846
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1567257842}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8537276754ed46988a12997e4de12589, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: QuestSaturation.Runtime::QuestSaturation.FreeControlController
+  experiment: {fileID: 798231957}
+  saturationController: {fileID: 1109095764}
+  settingsStore: {fileID: 1567257847}
+--- !u!114 &1567257847
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1567257842}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2f971129cd7e49abb0b18ed2ab4f7728, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: QuestSaturation.Runtime::QuestSaturation.SettingsStore
+  saveDelaySec: 1
+  maxSaveDelaySec: 5
+--- !u!4 &1567257848
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1567257842}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1602980278
 GameObject:
   m_ObjectHideFlags: 0
@@ -1645,7 +1769,6 @@ MonoBehaviour:
   condition: 0
   normalScale: 0.2
   hoveredScale: 0.24
-  emissionStrength: 0.6
 --- !u!135 &1602980281
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1774,7 +1897,6 @@ MonoBehaviour:
   condition: 2
   normalScale: 0.2
   hoveredScale: 0.24
-  emissionStrength: 0.6
 --- !u!135 &1634497485
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1983,6 +2105,9 @@ MonoBehaviour:
   pointerLine: {fileID: 1342668541}
   maxRayDistance: 5
   selectButton: 8192
+  raycastMask:
+    serializedVersion: 2
+    m_Bits: 4294967291
 --- !u!4 &1937054600
 Transform:
   m_ObjectHideFlags: 0
@@ -2071,3 +2196,4 @@ SceneRoots:
   - {fileID: 1109095763}
   - {fileID: 1265717225}
   - {fileID: 798231958}
+  - {fileID: 1567257848}
