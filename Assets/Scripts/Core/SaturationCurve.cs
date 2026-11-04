@@ -1,7 +1,5 @@
 using UnityEngine;
 
-public enum Condition { A, B, C }
-
 public static class SaturationCurve
 {
     public const float HOLD_SEC = 3f;   // 選択後に 0 で固定する時間
