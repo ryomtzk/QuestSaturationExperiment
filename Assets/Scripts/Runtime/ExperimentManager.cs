@@ -1,5 +1,13 @@
+using System;
+using QuestSaturation.Core;
 using UnityEngine;
 
+/// <summary>
+/// 実験の進行役。状態遷移は Core の <see cref="ExperimentFlow"/> に任せ、
+/// このクラスは Flow が返す命令を OVR とシーンに反映するだけにしている。
+/// 実験のタイミングは以前と同じく、選んだフレームの Time.time から計る。
+/// </summary>
+[DefaultExecutionOrder(-10)]
 public class ExperimentManager : MonoBehaviour
 {
     [Header("References")]
@@ -11,102 +19,162 @@ public class ExperimentManager : MonoBehaviour
 
     [Header("Reset")]
     [SerializeField] private float resetHoldSec = 2f;
-    [SerializeField] private OVRInput.Button resetButton = OVRInput.Button.One; // 右手 A
+    [SerializeField] private OVRInput.Button resetButton = OVRInput.Button.One; // 右手 A（RTouch を指定して読む）
 
-    private enum Phase { Selection, Experiment }
-    private Phase phase;
-    private Condition selected;
-    private float experimentStartTime;
-    private float resetHoldStart = -1f;
+    private readonly ExperimentFlow flow = new ExperimentFlow();
+    private TapOrHoldDetector resetDetector;
     private CameraClearFlags originalClearFlags;
     private Color originalBackgroundColor;
-    private bool cameraDefaultsSaved = false;
-    void Start()
-{
-    if (mainCamera != null)
+    private bool cameraDefaultsSaved;
+
+    public ExperimentFlow Flow => flow;
+    public FlowState State => flow.State;
+    public OVRPassthroughLayer PassthroughLayer => passthroughLayer;
+    public SaturationController Saturation => saturationController;
+    public ConditionSelector Selector => selector;
+    public GameObject SelectionRoot => selectionRoot;
+    public Camera MainCamera => mainCamera;
+    public float ResetHoldSec => resetHoldSec;
+    public OVRInput.Button ResetButton => resetButton;
+
+    /// <summary>Flow のイベント（状態遷移、試行の開始と終了など）。ログ係が購読する。</summary>
+    public event Action<FlowEvent> FlowEventRaised;
+
+    /// <summary>Flow の命令を実行したあと（パススルーを有効にした等）に通知する。</summary>
+    public event Action<FlowCommand> CommandExecuted;
+
+    /// <summary>リセットの長押しが成立した（振動などに使う）。</summary>
+    public event Action ResetHoldFired;
+
+    /// <summary>今の状態では受け付けない操作が来た。</summary>
+    public event Action<Shortcut> InputIgnored;
+
+    void Awake()
     {
-        originalClearFlags = mainCamera.clearFlags;
-        originalBackgroundColor = mainCamera.backgroundColor;
-        cameraDefaultsSaved = true;
+        // 選択フェーズで書き換える前に、カメラの初期設定を保存する
+        if (mainCamera != null)
+        {
+            originalClearFlags = mainCamera.clearFlags;
+            originalBackgroundColor = mainCamera.backgroundColor;
+            cameraDefaultsSaved = true;
+        }
+        resetDetector = new TapOrHoldDetector(resetHoldSec, tapEnabled: false);
     }
-    EnterSelection();
-}
+
+    void Start()
+    {
+        flow.Begin(Time.time);
+        Execute();
+    }
 
     void Update()
     {
-        if (phase == Phase.Selection) UpdateSelection();
-        else                          UpdateExperiment();
-    }
+        float now = Time.time;
+        resetDetector.HoldSec = resetHoldSec;
+        bool resetHeld = resetDetector.Update(OVRInput.Get(resetButton, OVRInput.Controller.RTouch), now) == PressResult.Hold;
 
-    // ---------------- Selection ----------------
-    void EnterSelection()
-    {
-        phase = Phase.Selection;
-        if (passthroughLayer != null) passthroughLayer.enabled = false;
-        if (mainCamera != null)
+        switch (flow.State)
         {
-            mainCamera.clearFlags = CameraClearFlags.SolidColor;
-            mainCamera.backgroundColor = Color.white;
+            case FlowState.Selection:
+                if (selector != null && selector.HasSelected)
+                {
+                    flow.SelectCondition(selector.SelectedCondition, now);
+                    // 決定と同時に A を押していても、離すまではリセットを受け付けない
+                    resetDetector.Reset();
+                    Execute();
+                }
+                else if (resetHeld)
+                {
+                    InputIgnored?.Invoke(Shortcut.ResetHold);
+                }
+                break;
+
+            case FlowState.Trial:
+                flow.Tick(now);
+                Execute();
+                if (resetHeld)
+                {
+                    Debug.Log("[QSE] reset by long-press");
+                    ResetHoldFired?.Invoke();
+                    flow.RequestReset(now);
+                    Execute();
+                }
+                break;
+
+            case FlowState.FreeControl:
+                if (resetHeld) InputIgnored?.Invoke(Shortcut.ResetHold);
+                break;
         }
-        if (selectionRoot != null) selectionRoot.SetActive(true);
-        if (selector != null) selector.ResetSelection();
-        if (saturationController != null) saturationController.SetSaturation(0f);
-        resetHoldStart = -1f;
-
-        Debug.Log("[Experiment] Selection phase");
     }
 
-    void UpdateSelection()
+    /// <summary>左メニュー長押し。Selection ⇄ FreeControl。Trial 中は何もしない。</summary>
+    public bool ToggleFreeControl()
     {
-        if (selector != null && selector.HasSelected)
+        bool changed = flow.ToggleFreeControl(Time.time);
+        Execute();
+        return changed;
+    }
+
+    /// <summary>試行中に起きた中断を記録する（trial_end に入る）。</summary>
+    public void NoteInterruption(string kind) => flow.NoteInterruption(kind);
+
+    private void Execute()
+    {
+        foreach (var e in flow.Events)
         {
-            selected = selector.SelectedCondition;
-            EnterExperiment();
+            Debug.Log("[QSE] " + e);
+            FlowEventRaised?.Invoke(e);
         }
-    }
 
-    // ---------------- Experiment ----------------
-   void EnterExperiment()
-{
-    phase = Phase.Experiment;
-    if (passthroughLayer != null) passthroughLayer.enabled = true;
-
-    // ★ 追加：選択フェーズで上書きしたカメラ設定を元に戻す
-    if (mainCamera != null && cameraDefaultsSaved)
-    {
-        mainCamera.clearFlags = originalClearFlags;
-        mainCamera.backgroundColor = originalBackgroundColor;
-    }
-
-    if (selectionRoot != null) selectionRoot.SetActive(false);
-    experimentStartTime = Time.time;
-
-    Debug.Log($"[Experiment] Started condition {selected} (target={SaturationCurve.TargetFor(selected)})");
-}
-
-    void UpdateExperiment()
-    {
-        // saturation の更新
-        float elapsed = Time.time - experimentStartTime;
-        float sat = SaturationCurve.Evaluate(selected, elapsed);
-        if (saturationController != null) saturationController.SetSaturation(sat);
-
-        // A 長押しでリセット
-        if (OVRInput.Get(resetButton))
+        foreach (var a in flow.Actions)
         {
-            if (resetHoldStart < 0f)
+            switch (a.Command)
             {
-                resetHoldStart = Time.time;
+                case FlowCommand.ApplyColor:
+                    if (saturationController != null) saturationController.Apply(a.Color);
+                    break;
+
+                case FlowCommand.EnablePassthrough:
+                    if (passthroughLayer != null) passthroughLayer.enabled = true;
+                    break;
+
+                case FlowCommand.DisablePassthrough:
+                    if (passthroughLayer != null) passthroughLayer.enabled = false;
+                    break;
+
+                case FlowCommand.UseSelectionBackground:
+                    if (mainCamera != null)
+                    {
+                        mainCamera.clearFlags = CameraClearFlags.SolidColor;
+                        mainCamera.backgroundColor = Color.white;
+                    }
+                    break;
+
+                case FlowCommand.RestoreCameraBackground:
+                    if (mainCamera != null && cameraDefaultsSaved)
+                    {
+                        mainCamera.clearFlags = originalClearFlags;
+                        mainCamera.backgroundColor = originalBackgroundColor;
+                    }
+                    break;
+
+                case FlowCommand.ShowSpheres:
+                    if (selectionRoot != null) selectionRoot.SetActive(true);
+                    break;
+
+                case FlowCommand.HideSpheres:
+                    if (selectionRoot != null) selectionRoot.SetActive(false);
+                    break;
+
+                case FlowCommand.ResetSelector:
+                    if (selector != null) selector.ResetSelection();
+                    break;
             }
-            else if (Time.time - resetHoldStart >= resetHoldSec)
-            {
-                Debug.Log("[Experiment] Reset by long-press");
-                EnterSelection();
-            }
+
+            CommandExecuted?.Invoke(a.Command);
         }
-        else
-        {
-            resetHoldStart = -1f;
-        }
+
+        // 球を選べるのは Selection の間だけ
+        if (selector != null) selector.enabled = flow.State == FlowState.Selection;
     }
 }
