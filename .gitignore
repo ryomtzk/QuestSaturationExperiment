@@ -116,3 +116,7 @@ InitTestScene*.unity*
 /[Aa]ssets/Resources/QuestSaturationBuildInfo.txt.meta
 # Session logs copied from the headset by tools/pull_sessions.sh (participant data)
 /quest_sessions/
+# Meta XR SDK 207 DevAgent settings: the SDK fills in a per-machine access token and LAN IP
+# on every editor load, so it must not be committed (the repo is public)
+/[Aa]ssets/Resources/DevAgentSettings.asset
+/[Aa]ssets/Resources/DevAgentSettings.asset.meta
