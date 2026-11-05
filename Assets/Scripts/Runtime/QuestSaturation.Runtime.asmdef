@@ -1,0 +1,18 @@
+{
+    "name": "QuestSaturation.Runtime",
+    "rootNamespace": "",
+    "references": [
+        "QuestSaturation.Core",
+        "GUID:f64c9ebcd7899c3448a08dc9f9ddbe30",
+        "GUID:2bafac87e7f4b9b418d9448d219b01ab"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
