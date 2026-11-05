@@ -238,6 +238,106 @@ namespace QuestSaturation.Tests
         }
 
         [Test]
+        public void TrialCountCanBeSetOutsideTrials()
+        {
+            var f = new ExperimentFlow();
+            f.Begin(0f);
+            f.SelectCondition(Condition.A, 0f);
+            Assert.That(f.SetTrialCount(0), Is.False, "not during a trial");
+            Assert.That(f.TrialIndex, Is.EqualTo(1));
+            f.RequestReset(5f);
+            f.SelectCondition(Condition.B, 6f);
+            f.RequestReset(7f);
+            Assert.That(f.TrialIndex, Is.EqualTo(2));
+
+            Assert.That(f.SetTrialCount(0), Is.True);
+            Assert.That(f.TrialIndex, Is.EqualTo(0));
+            f.SelectCondition(Condition.C, 8f);
+            Assert.That(f.TrialIndex, Is.EqualTo(1), "new participant starts at trial 1");
+            Assert.That(f.Events.First(e => e.Name == "trial_start").Detail, Does.Contain("trial=1"));
+
+            f.RequestReset(9f);
+            f.ToggleFreeControl(10f);
+            var pending = Commands(f);
+            Assert.That(f.SetTrialCount(2), Is.True, "FreeControl is where the participant ID is changed");
+            Assert.That(f.TrialIndex, Is.EqualTo(2), "back to a participant who already did 2 trials");
+            // ExperimentManager がまだ命令を実行している途中で呼ばれることがあるので、命令の列はそのまま残す
+            Assert.That(Commands(f), Is.EqualTo(pending));
+            f.SetTrialCount(-5);
+            Assert.That(f.TrialIndex, Is.EqualTo(0));
+        }
+
+        // ExperimentManager.Execute と同じ順序（FlowExecution.Plan）で、命令とイベントを1本の列に並べる
+        private static string[] Walk(ExperimentFlow f)
+        {
+            var order = new System.Collections.Generic.List<int>();
+            FlowExecution.Plan(f.Actions, f.ColorBeforeEvents, order);
+            return order.Select(i => i == FlowExecution.Events ? "EVENTS" : f.Actions[i].Command.ToString()).ToArray();
+        }
+
+        private static void AssertColorBeforeEnable(string[] walk)
+        {
+            int enable = System.Array.IndexOf(walk, nameof(FlowCommand.EnablePassthrough));
+            if (enable < 0) return;
+            int color = System.Array.IndexOf(walk, nameof(FlowCommand.ApplyColor));
+            Assert.That(color, Is.InRange(0, enable - 1), string.Join(",", walk));
+        }
+
+        [Test]
+        public void InTrialColorIsSentBeforeEvents()
+        {
+            var f = new ExperimentFlow();
+            f.Begin(0f);
+            f.SelectCondition(Condition.C, 0f);
+            Assert.That(f.ColorBeforeEvents, Is.True);
+            var walk = Walk(f);
+            // trial_start の行に、時刻 0 の色が入る
+            Assert.That(System.Array.IndexOf(walk, "ApplyColor"), Is.LessThan(System.Array.IndexOf(walk, "EVENTS")), string.Join(",", walk));
+            AssertColorBeforeEnable(walk);
+
+            f.Tick(3.5f); // ramp_start が出るフレーム
+            walk = Walk(f);
+            Assert.That(f.Events.Select(e => e.Name), Does.Contain("ramp_start"));
+            Assert.That(walk, Is.EqualTo(new[] { "ApplyColor", "EVENTS" }), "ramp_start row shows this frame's color");
+        }
+
+        [Test]
+        public void OutsideTrialEventsComeFirstAndCommandsKeepTheirOrder()
+        {
+            var f = new ExperimentFlow();
+            f.Begin(0f);
+            Assert.That(Walk(f)[0], Is.EqualTo("EVENTS"));
+            f.SelectCondition(Condition.C, 0f);
+            f.Tick(20f);
+            f.RequestReset(20f);
+            Assert.That(f.ColorBeforeEvents, Is.False);
+            var walk = Walk(f);
+            Assert.That(walk[0], Is.EqualTo("EVENTS"), "trial_end row keeps the trial's last color");
+            Assert.That(walk.Skip(1), Is.EqualTo(Commands(f).Select(c => c.ToString())));
+
+            f.ToggleFreeControl(21f);
+            walk = Walk(f);
+            Assert.That(walk[0], Is.EqualTo("EVENTS"));
+            AssertColorBeforeEnable(walk);
+            f.ToggleFreeControl(22f);
+            Assert.That(Walk(f)[0], Is.EqualTo("EVENTS"), "state_change row keeps the last FreeControl color");
+        }
+
+        [Test]
+        public void PlanVisitsEveryCommandOnceAndEventsOnce()
+        {
+            var f = new ExperimentFlow();
+            f.Begin(0f);
+            f.SelectCondition(Condition.B, 0f);
+            var order = new System.Collections.Generic.List<int>();
+            FlowExecution.Plan(f.Actions, true, order);
+            Assert.That(order.Count(i => i == FlowExecution.Events), Is.EqualTo(1));
+            Assert.That(order.Where(i => i >= 0).OrderBy(i => i), Is.EqualTo(Enumerable.Range(0, f.Actions.Count)));
+            var nonColor = order.Where(i => i >= 0 && f.Actions[i].Command != FlowCommand.ApplyColor).ToArray();
+            Assert.That(nonColor, Is.Ordered, "other commands keep their order");
+        }
+
+        [Test]
         public void SelectionIsIgnoredOutsideSelection()
         {
             var f = new ExperimentFlow();

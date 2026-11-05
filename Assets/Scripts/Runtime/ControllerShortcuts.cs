@@ -24,6 +24,7 @@ namespace QuestSaturation
 
         private TapOrHoldDetector menuButton;
         private TapOrHoldDetector bButton;
+        private readonly StickAxisLock stickAxis = new StickAxisLock();
         private readonly StickRepeater stickVertical = new StickRepeater();
         private readonly StickRepeater stickHorizontal = new StickRepeater();
         private float leftHapticUntil = -1f;
@@ -88,11 +89,12 @@ namespace QuestSaturation
                 }
             }
 
-            // 左グリップ：マーカー（どの状態でも記録する）
+            // 左グリップ：マーカー（どの状態でも記録する）。
+            // 試行中は振動させない。被験者がコントローラーを持っていると、刺激以外の手がかりになるため
             if (OVRInput.GetDown(OVRInput.RawButton.LHandTrigger) && Run(Shortcut.Marker))
             {
                 MarkerPressed?.Invoke();
-                Pulse(OVRInput.Controller.LTouch);
+                if (experiment.State != FlowState.Trial) Pulse(OVRInput.Controller.LTouch);
             }
 
             // 左Y：パネル表示の切替、左X：パネルを呼び戻す
@@ -119,11 +121,13 @@ namespace QuestSaturation
             bool clickHeld = OVRInput.Get(OVRInput.RawButton.RThumbstick);
             if (clickDown && Run(Shortcut.StickClick) && freeControl != null) freeControl.ResetCurrent();
 
+            // 倒し始めた軸を中央に戻すまで使い続ける（斜めを通ってもリピートが切れない）。
+            // リピートは FreeControl の小数の項目だけ。ほかの状態では、押し続けても input_ignored は1回だけ
             Vector2 axis = OVRInput.Get(OVRInput.RawAxis2D.RThumbstick);
-            bool vertical = Mathf.Abs(axis.y) >= Mathf.Abs(axis.x);
-            bool repeat = freeControl != null && freeControl.CurrentDef.Repeats;
-            int v = stickVertical.Update(vertical ? axis.y : 0f, clickHeld, repeat: false, now);
-            int h = stickHorizontal.Update(vertical ? 0f : axis.x, clickHeld, repeat, now);
+            var locked = stickAxis.Update(axis.x, axis.y);
+            bool repeat = experiment.State == FlowState.FreeControl && freeControl != null && freeControl.CurrentDef.Repeats;
+            int v = stickVertical.Update(locked == StickAxis.Vertical ? axis.y : 0f, clickHeld, repeat: false, now);
+            int h = stickHorizontal.Update(locked == StickAxis.Horizontal ? axis.x : 0f, clickHeld, repeat, now);
 
             if (v > 0 && Run(Shortcut.StickUp) && freeControl != null) freeControl.MoveCursor(-1);
             if (v < 0 && Run(Shortcut.StickDown) && freeControl != null) freeControl.MoveCursor(+1);
@@ -164,6 +168,7 @@ namespace QuestSaturation
         {
             menuButton?.Reset();
             bButton?.Reset();
+            stickAxis.Reset();
             stickVertical.Reset();
             stickHorizontal.Reset();
         }

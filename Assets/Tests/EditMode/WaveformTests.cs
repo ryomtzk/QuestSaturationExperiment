@@ -160,14 +160,15 @@ namespace QuestSaturation.Tests
         [Test]
         public void LongRunsStayPrecise()
         {
-            var p = Make(Waveform.LinearPingPong, 10f);
+            // 周期 7 秒、90Hz で 10 時間。終わりの位相は 0 から遠い（約 0.857）ので、ずれがあれば見える
+            var p = Make(Waveform.LinearPingPong, 7f);
             p.Play();
-            // 90Hz で 10 時間
             const float dt = 1f / 90f;
             const int frames = 90 * 3600 * 10;
             for (int i = 0; i < frames; i++) p.Tick(dt);
-            double expected = (frames * (double)dt / 10.0) % 1.0;
-            Assert.That(p.Phase, Is.EqualTo(expected).Within(1e-4));
+            double expected = (frames * (double)dt / 7.0) % 1.0;
+            Assert.That(expected, Is.EqualTo(0.857).Within(0.01), "sanity check of the expected value");
+            Assert.That(p.Phase, Is.EqualTo(expected).Within(1e-6));
             Assert.That(p.Phase, Is.InRange(0.0, 1.0));
         }
 

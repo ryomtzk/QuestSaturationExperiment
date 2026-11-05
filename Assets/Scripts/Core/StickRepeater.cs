@@ -1,5 +1,44 @@
 namespace QuestSaturation.Core
 {
+    public enum StickAxis
+    {
+        None = 0,
+        Vertical = 1,
+        Horizontal = 2,
+    }
+
+    /// <summary>
+    /// スティックを倒し始めた軸を、中央に戻すまで固定する。
+    /// 毎フレーム大きいほうの軸を選ぶと、斜めを通るたびに反対の軸へ 0 が入り、リピートが途切れたり、
+    /// 戻したときにもう1回入力が出たりする。そのため、最初にしきい値を越えた軸だけを使い続ける。
+    /// </summary>
+    public sealed class StickAxisLock
+    {
+        public float PressThreshold = 0.6f;
+        public float ReleaseThreshold = 0.35f;
+
+        public StickAxis Locked { get; private set; }
+
+        /// <summary>このフレームで使う軸。どちらもしきい値に届いていなければ None。</summary>
+        public StickAxis Update(float x, float y)
+        {
+            float ax = float.IsNaN(x) ? 0f : System.Math.Abs(x);
+            float ay = float.IsNaN(y) ? 0f : System.Math.Abs(y);
+
+            if (Locked != StickAxis.None)
+            {
+                if (ax < ReleaseThreshold && ay < ReleaseThreshold) Locked = StickAxis.None;
+                else return Locked;
+            }
+
+            if (ax >= PressThreshold || ay >= PressThreshold)
+                Locked = ay >= ax ? StickAxis.Vertical : StickAxis.Horizontal;
+            return Locked;
+        }
+
+        public void Reset() => Locked = StickAxis.None;
+    }
+
     /// <summary>
     /// スティック1軸のアナログ値を、-1 / 0 / +1 の離散入力に変える。
     /// 倒した瞬間に1回出し、<see cref="Update"/> で repeat を許したときだけ、押し続けるとリピートする。

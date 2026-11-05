@@ -21,7 +21,7 @@ namespace QuestSaturation.Core
     public enum ParameterKind
     {
         Float, // 押し続けるとリピート
-        Int,   // 押し続けるとリピート
+        Int,   // スティックを倒すたびに1つ。端で止まる
         Enum,  // スティックを倒すたびに1つ。端で折り返す
     }
 
@@ -50,7 +50,8 @@ namespace QuestSaturation.Core
             Options = options;
         }
 
-        public bool Repeats => Kind != ParameterKind.Enum;
+        /// <summary>押し続けるとリピートするか。小数の項目だけ。整数（被験者 ID など）は1回ずつ確かめながら変える。</summary>
+        public bool Repeats => Kind == ParameterKind.Float;
 
         /// <summary>
         /// 不正値を補正する。NaN と無限大は既定値に、範囲外は端に、Int と Enum は整数に丸める。

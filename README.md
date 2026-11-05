@@ -36,18 +36,18 @@ The profile is fixed in code (`ExperimentProfile.Canonical`) and cannot be chang
 
 ## Operator mode (FreeControl)
 
-Hold the **left ☰ (menu)** button for 1.5 s in Selection to enter FreeControl, and again to go back. It cannot be entered during a trial. FreeControl always starts in Manual mode with playback stopped, and fades from the current view over 0.5 s.
+Hold the **left ☰ (menu)** button for 1.5 s in Selection to enter FreeControl, and again to go back. It cannot be entered during a trial. FreeControl always starts in Manual mode with playback stopped and the cursor at the top (Mode), and fades from the current view over 0.5 s.
 
 | Button | Action |
 |---|---|
 | Right stick up / down | Select a parameter |
-| Right stick left / right | Change the value (hold to repeat for numbers) |
+| Right stick left / right | Change the value. Decimal values repeat while held; Steps and Participant change one step per push |
 | Right stick click | Reset the selected parameter to its default |
 | Right B (tap) | Play / pause the waveform (switches Manual to Auto) |
 | Right B (hold 1 s) | Stop and rewind |
 | Left Y | Show / hide the panel |
 | Left X | Bring the panel back in front of you |
-| Left grip | Add a marker to the log (works in every mode) |
+| Left grip | Add a marker to the log (works in every mode; no vibration during a trial) |
 | Left ☰ (hold 1.5 s) | Back to Selection |
 
 | Parameter | Range | Step | Default |
@@ -66,6 +66,7 @@ Hold the **left ☰ (menu)** button for 1.5 s in Selection to enter FreeControl,
 - **Auto** drives saturation only; brightness and contrast keep their Manual values. Going back to Manual returns to the Manual saturation.
 - Every waveform starts at *Wave from*. Sine, Linear and Step go to *Wave to* and back once per period (Step moves one level at a time). Ramp goes from *Wave from* to *Wave to* once and holds.
 - Changing the period while playing does not make the value jump. Pause keeps the position; Stop rewinds.
+- The right stick accepts only the direction you first pushed (up/down or left/right) until it returns to center, so passing through a diagonal while changing a value does not move to another row. Return it to center before switching.
 - Parameters and the participant ID are saved on the headset and restored on the next launch. Mode and playback state are not saved.
 - **Photosensitivity**: Auto mode changes the whole field of view. Check participants for photosensitivity before using it. The period cannot be shorter than 1 s.
 
@@ -73,7 +74,7 @@ The panel is shown only in FreeControl. It is hidden whenever Selection or a tri
 
 ## Session logs (CSV)
 
-Files are written to `Android/data/com.ryomtzk.questsaturationexperiment/files/sessions/session_<UTC time>_P<participant>.csv`. A new file starts at each launch, and when the participant ID has changed and the app returns to Selection.
+Files are written to `Android/data/com.ryomtzk.questsaturationexperiment/files/sessions/session_<UTC time>_P<participant>.csv`. A new file starts at each launch and whenever the participant ID changes. Stepping through IDs does nothing yet: the change takes effect at the next change to another item (not Participant), play / pause / stop, marker, or when you leave FreeControl. Until then the panel shows it as pending (`P007 -> P008 (pending)`). Going back to the original ID before then changes nothing. A new participant's trials are numbered from 1; going back to an ID already used in this launch continues its numbering. After a relaunch numbering starts from 1 again, so use `session_id` to tell files apart.
 
 - Sample rows: every frame during a trial, 10 per second otherwise. Written to disk every second.
 - Event rows: written to disk immediately. If the app crashes, at most about 1 s of samples is lost.
@@ -84,7 +85,7 @@ Files are written to `Android/data/com.ryomtzk.questsaturationexperiment/files/s
 | `wall_clock_utc` | UTC time, ISO 8601 |
 | `t_realtime_s`, `t_game_s`, `frame`, `unscaled_dt` | Time since start, `Time.time`, frame number, frame time |
 | `state` | `Selection`, `Trial` or `FreeControl` |
-| `trial_index`, `condition` | Trial number (from 1) and condition |
+| `trial_index`, `condition` | The participant's trial number (from 1; see above) and condition |
 | `trial_stage`, `trial_elapsed_s`, `target_saturation` | `hold` / `ramp` / `target`, the seconds passed to the curve, and the condition's target |
 | `passthrough_visible` | 1 when the layer is on and has been rendered since it was turned on |
 | `saturation`, `brightness`, `contrast` | Values actually sent to the layer (after clamping) |

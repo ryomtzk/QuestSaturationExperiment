@@ -14,6 +14,7 @@ namespace QuestSaturation.Editor
     /// 出力先：~/Downloads/QuestBuilds/QuestSaturationExperiment_operator.apk。
     /// 同名のファイルがあるときは上書きせず、時刻を付けた名前にする。
     /// batchmode：-executeMethod QuestSaturation.Editor.BuildScript.BuildQuestApk -quit
+    /// 出力先を変えるとき：-qseBuildOutput /path/to/file.apk（既にあれば失敗する）
     /// </summary>
     public static class BuildScript
     {
@@ -67,8 +68,13 @@ namespace QuestSaturation.Editor
                 return false;
             }
 
-            string path = UniquePath();
-            Directory.CreateDirectory(OutputDir);
+            string path = OutputFromCommandLine() ?? UniquePath();
+            if (File.Exists(path))
+            {
+                message = path + " already exists (not overwriting)";
+                return false;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
 
             var options = new BuildPlayerOptions
             {
@@ -85,10 +91,12 @@ namespace QuestSaturation.Editor
             try
             {
                 BuildInfoWriter.Write();
+                BuildInfoWriter.WrittenForCurrentBuild = true;
                 report = BuildPipeline.BuildPlayer(options);
             }
             finally
             {
+                BuildInfoWriter.WrittenForCurrentBuild = false;
                 BuildInfoWriter.Delete();
                 EditorUserBuildSettings.buildAppBundle = wasAab;
             }
@@ -101,9 +109,18 @@ namespace QuestSaturation.Editor
             }
 
             LastOutputPath = path;
+            // summary.totalSize は圧縮前の合計なので、APK の実サイズはファイルから読む
+            long bytes = File.Exists(path) ? new FileInfo(path).Length : 0;
             message = string.Format(CultureInfo.InvariantCulture, "{0} ({1:0.0} MB, {2:0}s)",
-                path, summary.totalSize / (1024.0 * 1024.0), summary.totalTime.TotalSeconds);
+                path, bytes / (1024.0 * 1024.0), summary.totalTime.TotalSeconds);
             return true;
+        }
+
+        private static string OutputFromCommandLine()
+        {
+            var args = Environment.GetCommandLineArgs();
+            int i = Array.IndexOf(args, "-qseBuildOutput");
+            return i >= 0 && i + 1 < args.Length ? Path.GetFullPath(args[i + 1]) : null;
         }
 
         private static string UniquePath()

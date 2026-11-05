@@ -137,4 +137,49 @@ namespace QuestSaturation.Tests
             Assert.That(r.Update(0.9f, false, true, 0.3f), Is.EqualTo(1));
         }
     }
+
+    public class StickAxisLockTests
+    {
+        [Test]
+        public void StaysOnTheFirstAxisThroughTheDiagonal()
+        {
+            var l = new StickAxisLock();
+            Assert.That(l.Update(0.1f, 0.3f), Is.EqualTo(StickAxis.None), "below the press threshold");
+            Assert.That(l.Update(0.7f, 0.2f), Is.EqualTo(StickAxis.Horizontal));
+            Assert.That(l.Update(0.6f, 0.75f), Is.EqualTo(StickAxis.Horizontal), "y is now larger but the lock holds");
+            Assert.That(l.Update(0.1f, 0.9f), Is.EqualTo(StickAxis.Horizontal), "still not back at center");
+            Assert.That(l.Update(0.2f, 0.2f), Is.EqualTo(StickAxis.None), "both below release");
+            Assert.That(l.Update(0.1f, -0.8f), Is.EqualTo(StickAxis.Vertical));
+        }
+
+        [Test]
+        public void HoldingRightThroughADiagonalKeepsRepeating()
+        {
+            // 斜めを通っても横のリピートが途切れず、戻しても余分な1回が出ない
+            var l = new StickAxisLock();
+            var h = new StickRepeater { InitialDelaySec = 0.4f, RepeatIntervalSec = 0.1f };
+            var v = new StickRepeater();
+            int hTotal = 0, vTotal = 0;
+            for (int i = 0; i <= 90; i++)
+            {
+                float t = i / 90f;
+                float x = 0.8f;
+                float y = (i >= 30 && i < 50) ? 0.85f : 0f; // 途中で少し上に入る
+                var axis = l.Update(x, y);
+                hTotal += h.Update(axis == StickAxis.Horizontal ? x : 0f, false, true, t);
+                vTotal += v.Update(axis == StickAxis.Vertical ? y : 0f, false, false, t);
+            }
+            Assert.That(vTotal, Is.EqualTo(0), "the cursor must not move");
+            Assert.That(hTotal, Is.InRange(7, 8), "same as holding straight right for 1 s");
+        }
+
+        [Test]
+        public void NaNCountsAsCenter()
+        {
+            var l = new StickAxisLock();
+            Assert.That(l.Update(float.NaN, float.NaN), Is.EqualTo(StickAxis.None));
+            l.Update(0.9f, 0f);
+            Assert.That(l.Update(float.NaN, 0f), Is.EqualTo(StickAxis.None));
+        }
+    }
 }

@@ -168,9 +168,7 @@ namespace QuestSaturation.Core
                             case 'b': sb.Append('\b'); break;
                             case 'f': sb.Append('\f'); break;
                             case 'u':
-                                if (i + 4 > s.Length) throw new FormatException("bad \\u escape");
-                                sb.Append((char)Convert.ToInt32(s.Substring(i, 4), 16));
-                                i += 4;
+                                sb.Append(ReadHex4(s, ref i));
                                 break;
                             default: throw new FormatException("bad escape \\" + e);
                         }
@@ -178,6 +176,25 @@ namespace QuestSaturation.Core
                     else sb.Append(c);
                 }
                 return sb.ToString();
+            }
+
+            // \uXXXX の4桁。Convert.ToInt32 は "-041" なども受け付けて別の例外を投げるので、1桁ずつ読む
+            private static char ReadHex4(string s, ref int i)
+            {
+                if (i + 4 > s.Length) throw new FormatException("bad \\u escape");
+                int code = 0;
+                for (int k = 0; k < 4; k++)
+                {
+                    char h = s[i + k];
+                    int d;
+                    if (h >= '0' && h <= '9') d = h - '0';
+                    else if (h >= 'a' && h <= 'f') d = h - 'a' + 10;
+                    else if (h >= 'A' && h <= 'F') d = h - 'A' + 10;
+                    else throw new FormatException("bad \\u escape");
+                    code = code * 16 + d;
+                }
+                i += 4;
+                return (char)code;
             }
 
             private static string ReadBare(string s, ref int i)

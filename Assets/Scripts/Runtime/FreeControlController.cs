@@ -44,7 +44,7 @@ namespace QuestSaturation
             if (!Active) return;
             var output = EnsureModel().Tick(Time.deltaTime, out bool rampFinished);
             if (saturationController != null) saturationController.Apply(output);
-            if (rampFinished) Raise("ramp_finished", "");
+            if (rampFinished) Raise(FreeControlEvents.RampFinished, "");
         }
 
         public void MoveCursor(int delta) => menu.MoveCursor(delta);
@@ -71,7 +71,8 @@ namespace QuestSaturation
         {
             var before = Model.Mode;
             bool playing = Model.TogglePlayPause();
-            if (before != Model.Mode) Raise("param_change", "item=Mode;value=" + Model.Mode + ";how=play");
+            if (before != Model.Mode)
+                Raise(FreeControlEvents.ParamChange, FreeControlEvents.ParamChangeDetail(MenuItem.Mode, Model.Mode.ToString(), "play"));
             Raise(playing ? "play" : "pause", Describe());
         }
 
@@ -88,6 +89,7 @@ namespace QuestSaturation
                 case FlowCommand.EnterFreeControl:
                     var current = saturationController != null ? saturationController.Current : ColorAdjustment.Neutral;
                     EnsureModel().Enter(current);
+                    menu.ResetCursor(); // 毎回いちばん上（Mode）から。前回の Participant の行に残ったまま ID を触らないように
                     Active = true;
                     Raise("free_enter", Describe());
                     break;
@@ -104,7 +106,7 @@ namespace QuestSaturation
         private void OnParameterChanged(MenuItem item, string how, int idBefore)
         {
             var def = ParameterDefs.Get(item);
-            Raise("param_change", "item=" + item + ";value=" + def.Format(Model.GetValue(item)) + ";how=" + how);
+            Raise(FreeControlEvents.ParamChange, FreeControlEvents.ParamChangeDetail(item, def.Format(Model.GetValue(item)), how));
             if (item != MenuItem.Mode && settingsStore != null) settingsStore.MarkDirty();
             if (Model.Settings.ParticipantId != idBefore) ParticipantIdChanged?.Invoke(Model.Settings.ParticipantId);
         }

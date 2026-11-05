@@ -220,8 +220,14 @@ namespace QuestSaturation
             sb.Append("Passthrough: ").Append(PassthroughStatus()).Append('\n');
 
             if (experiment != null)
-                sb.Append("Participant P").Append(CurrentParticipant().ToString("000", inv))
-                  .Append("   Trials ").Append(experiment.Flow.TrialIndex.ToString(inv)).Append('\n');
+            {
+                // 試行数は確定済みの被験者のもの。変えたばかりで未確定の ID は別に示す
+                int current = sessionLogger != null ? sessionLogger.ParticipantId : CurrentParticipant();
+                int pending = sessionLogger != null ? sessionLogger.PendingParticipantId : -1;
+                sb.Append("Participant P").Append(current.ToString("000", inv));
+                if (pending >= 0 && pending != current) sb.Append(" -> P").Append(pending.ToString("000", inv)).Append(" (pending)");
+                sb.Append("   Trials ").Append(experiment.Flow.TrialIndex.ToString(inv)).Append('\n');
+            }
 
             if (sessionLogger != null)
                 sb.Append("Log: ").Append(string.IsNullOrEmpty(sessionLogger.FileName) ? "(off)" : sessionLogger.FileName).Append('\n');

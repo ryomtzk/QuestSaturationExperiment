@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using QuestSaturation.Core;
 using UnityEngine;
 
@@ -22,6 +23,7 @@ public class ExperimentManager : MonoBehaviour
     [SerializeField] private OVRInput.Button resetButton = OVRInput.Button.One; // 右手 A（RTouch を指定して読む）
 
     private readonly ExperimentFlow flow = new ExperimentFlow();
+    private readonly List<int> executionOrder = new List<int>();
     private TapOrHoldDetector resetDetector;
     private CameraClearFlags originalClearFlags;
     private Color originalBackgroundColor;
@@ -118,63 +120,83 @@ public class ExperimentManager : MonoBehaviour
     /// <summary>試行中に起きた中断を記録する（trial_end に入る）。</summary>
     public void NoteInterruption(string kind) => flow.NoteInterruption(kind);
 
+    /// <summary>これまでの試行数を設定する（被験者が替わったとき）。Trial 中は何もせず false。</summary>
+    public bool SetTrialCount(int count)
+    {
+        if (!flow.SetTrialCount(count)) return false;
+        Debug.Log("[QSE] trial count set to " + flow.TrialIndex);
+        return true;
+    }
+
     private void Execute()
     {
-        foreach (var e in flow.Events)
+        // 順序は FlowExecution.Plan（Trial 中は色をイベントより先に。どちらでも色は EnablePassthrough より前）
+        FlowExecution.Plan(flow.Actions, flow.ColorBeforeEvents, executionOrder);
+        foreach (int i in executionOrder)
         {
-            Debug.Log("[QSE] " + e);
-            FlowEventRaised?.Invoke(e);
-        }
-
-        foreach (var a in flow.Actions)
-        {
-            switch (a.Command)
+            if (i == FlowExecution.Events)
             {
-                case FlowCommand.ApplyColor:
-                    if (saturationController != null) saturationController.Apply(a.Color);
-                    break;
-
-                case FlowCommand.EnablePassthrough:
-                    if (passthroughLayer != null) passthroughLayer.enabled = true;
-                    break;
-
-                case FlowCommand.DisablePassthrough:
-                    if (passthroughLayer != null) passthroughLayer.enabled = false;
-                    break;
-
-                case FlowCommand.UseSelectionBackground:
-                    if (mainCamera != null)
-                    {
-                        mainCamera.clearFlags = CameraClearFlags.SolidColor;
-                        mainCamera.backgroundColor = Color.white;
-                    }
-                    break;
-
-                case FlowCommand.RestoreCameraBackground:
-                    if (mainCamera != null && cameraDefaultsSaved)
-                    {
-                        mainCamera.clearFlags = originalClearFlags;
-                        mainCamera.backgroundColor = originalBackgroundColor;
-                    }
-                    break;
-
-                case FlowCommand.ShowSpheres:
-                    if (selectionRoot != null) selectionRoot.SetActive(true);
-                    break;
-
-                case FlowCommand.HideSpheres:
-                    if (selectionRoot != null) selectionRoot.SetActive(false);
-                    break;
-
-                case FlowCommand.ResetSelector:
-                    if (selector != null) selector.ResetSelection();
-                    break;
+                foreach (var e in flow.Events)
+                {
+                    Debug.Log("[QSE] " + e);
+                    FlowEventRaised?.Invoke(e);
+                }
             }
-
-            CommandExecuted?.Invoke(a.Command);
+            else
+            {
+                Run(flow.Actions[i]);
+            }
         }
 
         // 球を選べるのは Selection の間だけ
         if (selector != null) selector.enabled = flow.State == FlowState.Selection;
+    }
+
+    private void Run(FlowAction a)
+    {
+        switch (a.Command)
+        {
+            case FlowCommand.ApplyColor:
+                if (saturationController != null) saturationController.Apply(a.Color);
+                break;
+
+            case FlowCommand.EnablePassthrough:
+                if (passthroughLayer != null) passthroughLayer.enabled = true;
+                break;
+
+            case FlowCommand.DisablePassthrough:
+                if (passthroughLayer != null) passthroughLayer.enabled = false;
+                break;
+
+            case FlowCommand.UseSelectionBackground:
+                if (mainCamera != null)
+                {
+                    mainCamera.clearFlags = CameraClearFlags.SolidColor;
+                    mainCamera.backgroundColor = Color.white;
+                }
+                break;
+
+            case FlowCommand.RestoreCameraBackground:
+                if (mainCamera != null && cameraDefaultsSaved)
+                {
+                    mainCamera.clearFlags = originalClearFlags;
+                    mainCamera.backgroundColor = originalBackgroundColor;
+                }
+                break;
+
+            case FlowCommand.ShowSpheres:
+                if (selectionRoot != null) selectionRoot.SetActive(true);
+                break;
+
+            case FlowCommand.HideSpheres:
+                if (selectionRoot != null) selectionRoot.SetActive(false);
+                break;
+
+            case FlowCommand.ResetSelector:
+                if (selector != null) selector.ResetSelection();
+                break;
+        }
+
+        CommandExecuted?.Invoke(a.Command);
     }
 }

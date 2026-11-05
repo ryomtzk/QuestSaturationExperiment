@@ -12,7 +12,8 @@ namespace QuestSaturation
     /// 実験ログを CSV に書く。保存先は persistentDataPath/sessions/session_&lt;UTC時刻&gt;_P&lt;ID&gt;.csv。
     /// - サンプル行：Trial 中は毎フレーム、それ以外は 10Hz。書き溜めて 1 秒ごとに書き出す。
     /// - イベント行：その場で書き出す（異常終了しても失うのは最大 1 秒分のサンプルだけ）。
-    /// 被験者 ID を変えたら、次に Selection に戻ったときに新しいファイルにする。
+    /// 被験者 ID を変えたら新しいファイルにし、試行数をその被験者のものにする（初めての ID は 0、この起動中に
+    /// 使った ID はその続き）。いつ切り替えるかは <see cref="ParticipantSession"/>。
     /// </summary>
     [DefaultExecutionOrder(90)] // LateUpdate を OVRPassthroughLayer(+100) より前に
     public class SessionLogger : MonoBehaviour
@@ -34,9 +35,9 @@ namespace QuestSaturation
         private StreamWriter writer;
         private string sessionId = "";
         private int fileParticipantId;
-        private int pendingParticipantId = -1;
+        private ParticipantSession participants = new ParticipantSession(0);
+        private readonly SampleClock sampleClock = new SampleClock();
         private bool failed;
-        private float lastSampleTime = float.NegativeInfinity;
         private float lastFlushTime;
 
         // パススルーが実際に映っているかの推定
@@ -52,6 +53,12 @@ namespace QuestSaturation
         private bool subscribed;
 
         public string FileName { get; private set; } = "";
+
+        /// <summary>いまのファイルの被験者 ID（確定済み）。</summary>
+        public int ParticipantId => participants.CurrentId;
+
+        /// <summary>FreeControl で変えたが、まだ確定していない ID。なければ -1。</summary>
+        public int PendingParticipantId => participants.PendingId;
         public string FilePath { get; private set; } = "";
         public bool Failed => failed;
 
@@ -68,7 +75,8 @@ namespace QuestSaturation
         void Awake()
         {
             int id = settingsStore != null ? settingsStore.EnsureLoaded().ParticipantId : 0;
-            Open(id, "startup");
+            participants = new ParticipantSession(id);
+            Open(participants.CurrentId, "startup");
         }
 
         void OnEnable() => Subscribe();
@@ -94,19 +102,15 @@ namespace QuestSaturation
 
         void LateUpdate()
         {
+            float real = Time.realtimeSinceStartup;
+
+            // 普通は FreeControl を出たときの state_change で確定済み。念のため Selection でも確定する。
+            // ログが書けなくなっていても試行数は切り替えるので、writer の確認より前に置く
+            if (participants.HasPending && experiment != null && experiment.State == FlowState.Selection)
+                CommitParticipant();
+
             if (writer == null) return;
             HookLateTargets();
-
-            // 被験者 ID を変えていたら、Selection に戻ったところで新しいファイルにする（命令をすべて実行し終えた後）
-            if (pendingParticipantId >= 0 && experiment != null && experiment.State == FlowState.Selection)
-            {
-                int id = pendingParticipantId;
-                pendingParticipantId = -1;
-                if (id != fileParticipantId) Rotate(id);
-                if (writer == null) return;
-            }
-
-            float real = Time.realtimeSinceStartup;
 
             var active = OVRInput.GetActiveController();
             if (!hasActiveController || active != lastActiveController)
@@ -125,10 +129,10 @@ namespace QuestSaturation
                 WriteEvent("passthrough_resume_timeout", Kv("waited_s", real - enabledAt) + ";" + Kv("init", InitState()), echo: true);
             }
 
+            // Trial 中は毎フレーム。それ以外は 1/idleSampleHz 秒の格子に乗せる
             bool trial = experiment != null && experiment.State == FlowState.Trial;
-            if (trial || real - lastSampleTime >= 1f / Mathf.Max(0.1f, idleSampleHz))
+            if (sampleClock.Due(Time.realtimeSinceStartupAsDouble, 1.0 / Mathf.Max(0.1f, idleSampleHz), everyFrame: trial))
             {
-                lastSampleTime = real;
                 Fill("", "");
                 WriteLine(row.ToLine());
             }
@@ -174,6 +178,7 @@ namespace QuestSaturation
         {
             if (writer == null) return;
             WriteEvent("session_end", Kv("reason", reason) + ";" + Kv("trials", experiment != null ? experiment.Flow.TrialIndex : 0), echo: true);
+            if (writer == null) return; // 書き込みに失敗すると Fail が writer を閉じている
             try
             {
                 writer.Flush();
@@ -186,10 +191,22 @@ namespace QuestSaturation
             writer = null;
         }
 
-        private void Rotate(int participantId)
+        /// <summary>
+        /// 保留中の被験者 ID の変更を確定する。被験者が替わったら、古いファイルを閉じ、試行数を新しい被験者のもの
+        /// （初めてなら 0）にして、新しいファイルを開く。Trial 中は確定しない（ID は FreeControl でしか変えられない
+        /// ので、普通は起きない）。
+        /// </summary>
+        private void CommitParticipant()
         {
-            Close("participant_changed");
-            Open(participantId, "participant_changed");
+            if (!participants.HasPending) return;
+            if (experiment != null && experiment.State == FlowState.Trial) return;
+            int trials = experiment != null ? experiment.Flow.TrialIndex : 0;
+            if (!participants.Commit(trials, out int restored)) return; // 元の ID に戻しただけ
+
+            Close("participant_changed"); // session_end には前の被験者の試行数が入る
+            if (experiment != null) experiment.SetTrialCount(restored);
+            fileParticipantId = participants.CurrentId; // ログが書けなくても、ID は切り替える
+            Open(participants.CurrentId, "participant_changed");
         }
 
         private void Flush()
@@ -376,6 +393,7 @@ namespace QuestSaturation
 
         private void OnFlowEvent(FlowEvent e)
         {
+            CommitParticipant(); // flow.State はもう新しい状態。この行（state_change など）を書く前に ID の変更を確定する
             if (e.Name == "trial_start") WriteEvent("condition_selected", SelectionInfo());
             WriteEvent(e.Name, e.Detail);
 
@@ -414,14 +432,23 @@ namespace QuestSaturation
             WriteEvent("passthrough_resumed", detail, echo: true);
         }
 
-        private void OnFreeControlChanged(string name, string detail) => WriteEvent(name, detail);
+        private void OnFreeControlChanged(string name, string detail)
+        {
+            // ID を送っている途中の行は前のファイルへ。ID 以外の操作をしたら、その行から新しい被験者のファイルへ
+            if (ParticipantSession.IsCommitTrigger(name, detail)) CommitParticipant();
+            WriteEvent(name, detail);
+        }
 
-        private void OnParticipantIdChanged(int id) => pendingParticipantId = id;
+        private void OnParticipantIdChanged(int id) => participants.NoteIdEdited(id);
 
         private void OnInputIgnored(Shortcut s, FlowState state) =>
             WriteEvent("input_ignored", Kv("input", s.ToString()) + ";" + Kv("state", state.ToString()), echo: true);
 
-        private void OnMarker() => WriteEvent("marker", "", echo: true);
+        private void OnMarker()
+        {
+            CommitParticipant();
+            WriteEvent("marker", "", echo: true);
+        }
 
         private void OnHmdMounted() => WriteEvent("hmd_mounted", "", echo: true);
 

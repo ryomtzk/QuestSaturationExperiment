@@ -19,10 +19,14 @@ namespace QuestSaturation.Editor
 
         public int callbackOrder => 0;
 
+        /// <summary>BuildScript がこのビルドのために書いたところなら true。ビルドが終わったら戻す。</summary>
+        internal static bool WrittenForCurrentBuild;
+
         public void OnPreprocessBuild(BuildReport report)
         {
-            // BuildScript から呼んだときは既に書いてある
-            if (!File.Exists(AssetPath)) Write();
+            // 前のビルドが失敗すると後処理が呼ばれず、古いファイルが残る。BuildScript 以外からのビルドでも
+            // 必ず今の commit で書き直す
+            if (!WrittenForCurrentBuild) Write();
         }
 
         public void OnPostprocessBuild(BuildReport report) => Delete();

@@ -160,4 +160,19 @@ namespace QuestSaturation.Core
             player.Steps = Settings.Steps;
         }
     }
+
+    /// <summary>
+    /// FreeControl がログに出すイベントの名前と、param_change の detail の書式。
+    /// FreeControlController と <see cref="ParticipantSession.IsCommitTrigger"/> が同じ書式を使うように、ここにまとめる。
+    /// </summary>
+    public static class FreeControlEvents
+    {
+        public const string ParamChange = "param_change";
+        public const string RampFinished = "ramp_finished";
+
+        public static string ParamChangeDetail(MenuItem item, string value, string how) =>
+            ItemPrefix(item) + "value=" + value + ";how=" + how;
+
+        public static string ItemPrefix(MenuItem item) => "item=" + item + ";";
+    }
 }

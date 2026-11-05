@@ -10,7 +10,7 @@ namespace QuestSaturation.Core
         FreeControl = 2, // オペレーターが自由に色を調整
     }
 
-    /// <summary>ExperimentManager が上から順に実行する命令。</summary>
+    /// <summary>ExperimentManager が実行する命令。順序（ApplyColor を先に送る場合や、イベントとの前後）は <see cref="FlowExecution.Plan"/>。</summary>
     public enum FlowCommand
     {
         ApplyColor,              // Color の値を SaturationController に送る
@@ -83,7 +83,10 @@ namespace QuestSaturation.Core
         /// <summary>Trial 中の条件。それ以外では最後に選ばれた条件。</summary>
         public Condition Condition { get; private set; }
 
-        /// <summary>これまでに始めた試行の数。Trial 中は今の試行の番号（1始まり）。</summary>
+        /// <summary>
+        /// これまでに始めた試行の数。Trial 中は今の試行の番号（1始まり）。被験者が替わると、その被験者の試行数になる
+        /// （初めての ID なら 0、この起動中に使った ID ならその続き。<see cref="SetTrialCount"/>）。
+        /// </summary>
         public int TrialIndex { get; private set; }
 
         public IReadOnlyList<FlowAction> Actions => actions;
@@ -191,6 +194,26 @@ namespace QuestSaturation.Core
         }
 
         /// <summary>
+        /// これまでの試行数を設定する。被験者が替わったときに呼ぶ（新しい被験者は 0、この起動中に使った ID に
+        /// 戻ったときはその続き）。被験者 ID は FreeControl で変える。Trial 中は何もせず false。
+        /// 命令とイベントの列は消さない（ExperimentManager が実行している途中に呼ばれることがあるため）。
+        /// </summary>
+        public bool SetTrialCount(int count)
+        {
+            if (State == FlowState.Trial) return false;
+            TrialIndex = count < 0 ? 0 : count;
+            return true;
+        }
+
+        /// <summary>
+        /// ExperimentManager がイベントより先に色を送るべきか。Trial 中（試行の開始と毎フレームの更新）は先に送り、
+        /// trial_start や ramp_start の行に、そのフレームの経過時間と同じフレームの色が並ぶようにする。
+        /// それ以外（リセット、FreeControl の出入り）はイベントを先に出し、trial_end や state_change の行には
+        /// それまで見えていた色を残す。どちらの場合も、色は EnablePassthrough より先に送られる。
+        /// </summary>
+        public bool ColorBeforeEvents => State == FlowState.Trial;
+
+        /// <summary>
         /// 試行中に起きた中断（HMD を外した、フォーカスを失った、アプリが一時停止した等）を記録する。
         /// trial_end の detail に含める。
         /// </summary>
@@ -243,5 +266,31 @@ namespace QuestSaturation.Core
         private static string Kv(string k, string v) => k + "=" + v;
         private static string Kv(string k, int v) => k + "=" + v.ToString(CultureInfo.InvariantCulture);
         private static string Kv(string k, float v) => k + "=" + v.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>ExperimentManager が命令とイベントを処理する順序。</summary>
+    public static class FlowExecution
+    {
+        /// <summary>順序の列の中で「ここでイベントをすべて出す」を表す値。</summary>
+        public const int Events = -1;
+
+        /// <summary>
+        /// 命令の番号を処理する順に order へ入れる。<see cref="Events"/> の位置でイベントをすべて出す。
+        /// colorFirst なら ApplyColor をすべて先に、次にイベント、次に残りの命令を元の順で。
+        /// そうでなければイベント、次にすべての命令を元の順で。どちらでも、ApplyColor どうし、ApplyColor 以外どうしの
+        /// 順序は変わらない（colorFirst のときは ApplyColor が他の命令より前に出る）。
+        /// </summary>
+        public static void Plan(IReadOnlyList<FlowAction> actions, bool colorFirst, List<int> order)
+        {
+            order.Clear();
+            if (colorFirst)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                    if (actions[i].Command == FlowCommand.ApplyColor) order.Add(i);
+            }
+            order.Add(Events);
+            for (int i = 0; i < actions.Count; i++)
+                if (!colorFirst || actions[i].Command != FlowCommand.ApplyColor) order.Add(i);
+        }
     }
 }

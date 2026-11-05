@@ -1,3 +1,4 @@
+using System;
 using QuestSaturation.Core;
 using UnityEngine;
 
@@ -40,9 +41,18 @@ namespace QuestSaturation
             }
             else
             {
-                Settings = SettingsCodec.Decode(json, out var warning);
-                LoadWarning = warning;
-                if (warning != null) Debug.LogWarning("[QSE] settings: " + warning + " (using defaults where needed)");
+                try
+                {
+                    Settings = SettingsCodec.Decode(json, out var warning);
+                    LoadWarning = warning;
+                }
+                catch (Exception e)
+                {
+                    // 想定外の壊れ方でも起動は止めない。既定値で始める
+                    Settings = FreeControlSettings.CreateDefault();
+                    LoadWarning = "decode_exception: " + e.GetType().Name;
+                }
+                if (LoadWarning != null) Debug.LogWarning("[QSE] settings: " + LoadWarning + " (using defaults where needed)");
             }
             return Settings;
         }

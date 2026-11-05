@@ -222,6 +222,17 @@ namespace QuestSaturation.Tests
         }
 
         [Test]
+        public void OnlyDecimalValuesRepeat()
+        {
+            foreach (var d in ParameterDefs.All)
+                Assert.That(d.Repeats, Is.EqualTo(d.Kind == ParameterKind.Float), d.Label);
+            Assert.That(ParameterDefs.Get(MenuItem.Saturation).Repeats, Is.True);
+            Assert.That(ParameterDefs.Get(MenuItem.ParticipantId).Repeats, Is.False, "IDs change one per flick");
+            Assert.That(ParameterDefs.Get(MenuItem.Steps).Repeats, Is.False);
+            Assert.That(ParameterDefs.Get(MenuItem.Waveform).Repeats, Is.False);
+        }
+
+        [Test]
         public void CursorWraps()
         {
             var m = new ParameterMenu();
