@@ -1624,13 +1624,12 @@ MonoBehaviour:
   experiment: {fileID: 798231957}
   freeControl: {fileID: 1567257846}
   sessionLogger: {fileID: 1567257844}
+  shortcuts: {fileID: 1567257845}
   head: {fileID: 963335135}
   distance: 0.8
-  verticalOffset: -0.05
-  sizePx: {x: 640, y: 520}
-  metersPerPixel: 0.001
-  fontSize: 22
-  refreshHz: 10
+  heightOffset: -0.14
+  metersPerUnit: 0.0005
+  recallSec: 0.25
 --- !u!114 &1567257844
 MonoBehaviour:
   m_ObjectHideFlags: 0

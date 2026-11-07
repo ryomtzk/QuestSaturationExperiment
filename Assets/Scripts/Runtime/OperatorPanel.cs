@@ -1,47 +1,81 @@
+using System;
 using System.Globalization;
-using System.Text;
 using QuestSaturation.Core;
+using QuestSaturation.UI;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace QuestSaturation
 {
     /// <summary>
-    /// オペレーター用の表示専用パネル。Canvas は実行時にコードで組み立てる
-    /// （TMP の Essentials が入っていないので UI.Text と組み込みフォントを使う。Raycaster は付けない）。
-    /// 背景は不透明にしている。半透明だとパススルーと混ざって読みにくく、色の評価にも影響するため。
-    /// Selection と Trial に入るたびに必ず隠す（ExperimentManager の HidePanel 命令）。
+    /// オペレーター用の表示専用パネル（FreeControl のときだけ見える）。見た目は <see cref="OperatorPanelView"/> が
+    /// 実行時にコードで組み立て、このクラスは状態を集めて渡すことと、表示・配置だけを受け持つ。
+    /// - 表示するのは FreeControl の間だけ（<see cref="PanelVisibility"/>）。Selection と Trial に入るたびに必ず、
+    ///   その場で隠す（ExperimentManager の HidePanel 命令。念のため、FreeControl 以外で表示中なら LateUpdate でも隠す）。
+    /// - 実験の処理を止めない：ほかの部品のイベント（命令、マーカー、FreeControl の変更）の中では、
+    ///   印を付けるだけで、表示の処理はしない（同じイベントを SessionLogger も受けるので、ここで例外が出ると
+    ///   ログの行が抜けるおそれがある）。表示の処理は LateUpdate で、例外が出たらパネルを止めて1回だけ報告する。
+    /// - 背景は不透明にしている。半透明だとパススルーと混ざって読みにくく、色の評価にも影響するため。
+    /// - 操作はコントローラーのボタンだけ（レイで押す部品は無い。Raycaster も付けない）。
+    /// - ログには何も書かない（通知はパネルの中だけ）。Unity のログには "[QSE-Panel]" を付けて出す。
     /// </summary>
     public class OperatorPanel : MonoBehaviour
     {
+        private const string LogTag = "[QSE-Panel] ";
+
         [SerializeField] private ExperimentManager experiment;
         [SerializeField] private FreeControlController freeControl;
         [SerializeField] private SessionLogger sessionLogger;
+        [SerializeField] private ControllerShortcuts shortcuts;
         [SerializeField] private Transform head; // CenterEyeAnchor
 
         [Header("Layout")]
         [SerializeField] private float distance = 0.8f;
-        [SerializeField] private float verticalOffset = -0.05f;
-        [SerializeField] private Vector2 sizePx = new Vector2(640f, 520f);
-        [SerializeField] private float metersPerPixel = 0.001f; // 0.8m 先で 1文字の高さが約 1.6 度
-        [SerializeField] private int fontSize = 22;
-        [SerializeField] private float refreshHz = 10f;
+        [Tooltip("目の高さからの上下（m）。目の高さの帯を空けて、パネルの横のパススルーを見やすくする")]
+        [SerializeField] private float heightOffset = -0.14f;
+        [Tooltip("Canvas の 1 単位の長さ（m）。0.0005 でパネルは 0.64 × 0.48 m")]
+        [SerializeField] private float metersPerUnit = 0.0005f;
+        [Tooltip("X で呼び戻したときに、新しい位置へ動く時間（秒）")]
+        [SerializeField] private float recallSec = 0.25f;
 
-        private Canvas canvas;
-        private Text text;
-        private string lastText = "";
-        private float nextRefresh;
+        private OperatorPanelView view;
+        private readonly OperatorPanelState state = new OperatorPanelState();
+        private readonly float[] previousValues = new float[ParameterDefs.All.Length];
         private bool placePending;
+        private bool placed;
+        private bool broken;
         private OVRDisplay hookedDisplay;
-        private readonly StringBuilder sb = new StringBuilder(1024);
+
+        // 置き直しのアニメーション
+        private bool moving;
+        private float moveT;
+        private Vector3 moveFromPos, moveToPos;
+        private Quaternion moveFromRot, moveToRot;
+
+        // 遅く変わる値（電池、時計）
+        private float nextSlowRefresh;
+        private int lastMinute = -1;
+
+        // 通知のきっかけ。イベントの中では数えるだけにして、LateUpdate で通知にする
+        private int markerPresses;
+        private int markerRun;
+        private string markerMessage;
+        private string resetDetail;
+        private int lastCommittedParticipant = int.MinValue;
+        private bool lastLogFailed;
+        private PlaybackStatus lastPlayback;
 
         public bool Visible { get; private set; }
+
+        /// <summary>表示中のパネル（プレビューやテスト用）。</summary>
+        public OperatorPanelView View => view;
 
         void Awake() => Build();
 
         void OnEnable()
         {
             if (experiment != null) experiment.CommandExecuted += OnCommand;
+            if (freeControl != null) freeControl.Changed += OnFreeControlChanged;
+            if (shortcuts != null) shortcuts.MarkerPressed += OnMarker;
             OVRManager.TrackingAcquired += RequestPlace;
             HookRecenter();
         }
@@ -49,9 +83,12 @@ namespace QuestSaturation
         void OnDisable()
         {
             if (experiment != null) experiment.CommandExecuted -= OnCommand;
+            if (freeControl != null) freeControl.Changed -= OnFreeControlChanged;
+            if (shortcuts != null) shortcuts.MarkerPressed -= OnMarker;
             OVRManager.TrackingAcquired -= RequestPlace;
             if (hookedDisplay != null) hookedDisplay.RecenteredPose -= RequestPlace;
             hookedDisplay = null;
+            SetVisible(false);
         }
 
         // OVRManager.display は OVRManager の初期化後にできるので、できたところで購読する
@@ -62,12 +99,31 @@ namespace QuestSaturation
             hookedDisplay.RecenteredPose += RequestPlace;
         }
 
+        /// <summary>FreeControl のときだけ表示する。ほかの状態では何もしない。</summary>
         public void Show()
         {
-            SetVisible(true);
+            if (view == null || broken) return;
+            if (experiment != null && !PanelVisibility.Allowed(experiment.State)) return;
+            if (!Visible)
+            {
+                SetVisible(true);
+                placed = false; // 隠していた間の位置は使わず、目の前に置き直す
+                try
+                {
+                    view.ClearTransient();
+                    Refresh(force: true);
+                    view.PlayAppear();
+                }
+                catch (Exception e)
+                {
+                    Fail(e);
+                    return;
+                }
+            }
             RequestPlace();
         }
 
+        /// <summary>すぐに隠す。どの状態からでも、例外を出さずに隠せるよう最小限のことだけをする。</summary>
         public void Hide() => SetVisible(false);
 
         public void Toggle()
@@ -84,25 +140,71 @@ namespace QuestSaturation
             HookRecenter();
             if (!Visible) return;
 
-            if (placePending && TryPlace()) placePending = false;
-
-            float now = Time.unscaledTime;
-            if (now < nextRefresh) return;
-            nextRefresh = now + 1f / Mathf.Max(1f, refreshHz);
-
-            string s = Compose();
-            if (s != lastText)
+            // パネルは FreeControl 専用。被験者が見る状態では、命令の順序にかかわらず表示しない
+            if (experiment != null && !PanelVisibility.Allowed(experiment.State))
             {
-                lastText = s;
-                text.text = s;
+                Hide();
+                return;
+            }
+
+            try
+            {
+                if (placePending && TryPlace()) placePending = false;
+                UpdateMove(Time.unscaledDeltaTime);
+                Refresh(force: false);
+                view.Animate(Time.unscaledDeltaTime);
+            }
+            catch (Exception e)
+            {
+                Fail(e);
             }
         }
 
+        /// <summary>表示の処理で例外が出た。パネルを止めて隠し、1回だけ報告する（実験の処理は続ける）。</summary>
+        private void Fail(Exception e)
+        {
+            SetVisible(false);
+            if (broken) return;
+            broken = true;
+            Debug.LogError(LogTag + "the operator panel stopped after an error and stays hidden: " + e);
+        }
+
+        // ---------------------------------------------------------------- イベント（印を付けるだけ）
+
         private void OnCommand(FlowCommand c)
         {
-            if (c == FlowCommand.ShowPanel) Show();
-            else if (c == FlowCommand.HidePanel) Hide();
+            try
+            {
+                if (c == FlowCommand.ShowPanel) Show();
+                else if (c == FlowCommand.HidePanel) Hide();
+            }
+            catch (Exception e)
+            {
+                Fail(e);
+            }
         }
+
+        private void OnMarker()
+        {
+            // 時刻は、SessionLogger が行に書いたものを LateUpdate で読む（どちらのハンドラーが先に呼ばれても同じ）
+            markerPresses++;
+        }
+
+        private void OnFreeControlChanged(string name, string detail)
+        {
+            try
+            {
+                if (name == FreeControlEvents.ParamChange && detail != null &&
+                    detail.EndsWith(";how=reset", StringComparison.Ordinal))
+                    resetDetail = detail;
+            }
+            catch (Exception)
+            {
+                // 通知が出ないだけ
+            }
+        }
+
+        // ---------------------------------------------------------------- 表示と配置
 
         private void RequestPlace()
         {
@@ -112,11 +214,29 @@ namespace QuestSaturation
         private void SetVisible(bool v)
         {
             Visible = v;
-            if (canvas != null) canvas.gameObject.SetActive(v);
-            if (v) nextRefresh = 0f;
+            if (!v)
+            {
+                moving = false;
+                placePending = false;
+            }
+            if (view == null) return;
+            if (view.gameObject.activeSelf != v) view.gameObject.SetActive(v);
+            if (!v)
+            {
+                try
+                {
+                    view.ClearTransient();
+                }
+                catch (Exception)
+                {
+                    // 隠すことはもう済んでいる
+                }
+            }
         }
 
-        /// <summary>頭の位置が有効になってから、頭の前に水平に置く。</summary>
+        /// <summary>
+        /// 頭の位置が有効になってから、頭の前の少し下に、頭のほうへ向けて置く。表示中に置き直すときは滑らかに動かす。
+        /// </summary>
         private bool TryPlace()
         {
             if (head == null) return false;
@@ -127,10 +247,36 @@ namespace QuestSaturation
             if (forward.sqrMagnitude < 1e-4f) forward = Vector3.forward;
             forward.Normalize();
 
-            var t = canvas.transform;
-            t.position = head.position + forward * distance + Vector3.up * verticalOffset;
-            t.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            Vector3 pos = head.position + forward * distance + Vector3.up * heightOffset;
+            Vector3 facing = pos - head.position;
+            Quaternion rot = facing.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(facing, Vector3.up) : Quaternion.LookRotation(forward, Vector3.up);
+            var t = view.transform;
+
+            if (!placed || recallSec <= 0f)
+            {
+                t.SetPositionAndRotation(pos, rot);
+                moving = false;
+            }
+            else
+            {
+                moveFromPos = t.position;
+                moveFromRot = t.rotation;
+                moveToPos = pos;
+                moveToRot = rot;
+                moveT = 0f;
+                moving = true;
+            }
+            placed = true;
             return true;
+        }
+
+        private void UpdateMove(float dt)
+        {
+            if (!moving) return;
+            moveT = Mathf.Min(1f, moveT + dt / Mathf.Max(0.01f, recallSec));
+            float e = moveT * moveT * (3f - 2f * moveT);
+            view.transform.SetPositionAndRotation(Vector3.Lerp(moveFromPos, moveToPos, e), Quaternion.Slerp(moveFromRot, moveToRot, e));
+            if (moveT >= 1f) moving = false;
         }
 
         private static bool HeadPoseValid() =>
@@ -139,118 +285,152 @@ namespace QuestSaturation
 
         private void Build()
         {
-            if (canvas != null) return;
-
-            var root = new GameObject("OperatorPanelCanvas", typeof(RectTransform));
-            root.transform.SetParent(transform, false);
-            canvas = root.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-            var scaler = root.AddComponent<CanvasScaler>();
-            scaler.dynamicPixelsPerUnit = 3f;
-            var rt = (RectTransform)root.transform;
-            rt.sizeDelta = sizePx;
-            rt.localScale = Vector3.one * metersPerPixel;
-
-            var bg = new GameObject("Background", typeof(RectTransform), typeof(Image));
-            bg.transform.SetParent(root.transform, false);
-            Stretch((RectTransform)bg.transform, 0f);
-            var image = bg.GetComponent<Image>();
-            image.color = new Color(0.08f, 0.08f, 0.08f, 1f);
-            image.raycastTarget = false;
-
-            var label = new GameObject("Text", typeof(RectTransform), typeof(Text));
-            label.transform.SetParent(root.transform, false);
-            Stretch((RectTransform)label.transform, 16f);
-            text = label.GetComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            text.fontSize = fontSize;
-            text.color = Color.white;
-            text.alignment = TextAnchor.UpperLeft;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            text.verticalOverflow = VerticalWrapMode.Truncate;
-            text.supportRichText = false;
-            text.raycastTarget = false;
-            text.lineSpacing = 1f;
-
+            if (view != null) return;
+            try
+            {
+                view = OperatorPanelView.Create(transform, metersPerUnit);
+                view.SetVersion("v" + Application.version);
+            }
+            catch (Exception e)
+            {
+                view = null;
+                broken = true;
+                Debug.LogError(LogTag + "could not build the operator panel; it will stay hidden: " + e);
+            }
             SetVisible(false);
         }
 
-        private static void Stretch(RectTransform r, float margin)
+        // ---------------------------------------------------------------- 状態を集める
+
+        private void Refresh(bool force)
         {
-            r.anchorMin = Vector2.zero;
-            r.anchorMax = Vector2.one;
-            r.offsetMin = new Vector2(margin, margin);
-            r.offsetMax = new Vector2(-margin, -margin);
+            Gather(force);
+            view.Apply(state);
+            Notify(force);
         }
 
-        /// <summary>表示文字列。ASCII だけを使う（組み込みフォントで確実に出るように）。</summary>
-        private string Compose()
+        private void Gather(bool force)
         {
-            var inv = CultureInfo.InvariantCulture;
-            sb.Clear();
-            var state = experiment != null ? experiment.State : FlowState.Selection;
-            sb.Append("QSE v").Append(Application.version).Append("   State: ").Append(state).Append('\n');
+            // 前のフレームの値（リセットの通知で、元の値を出すため）
+            Array.Copy(state.Values, previousValues, previousValues.Length);
 
-            if (freeControl != null)
-            {
-                var m = freeControl.Model;
-                sb.Append("Mode: ").Append(m.Mode);
-                if (m.Mode == FreeMode.Auto)
-                {
-                    string play = m.Player.IsPlaying ? "PLAYING" : m.Player.IsFinished ? "FINISHED" : m.Player.Phase > 0 ? "PAUSED" : "STOPPED";
-                    sb.Append("  [").Append(play).Append("] ").Append((m.Player.IsFinished ? 1.0 : m.Player.Phase).ToString("0.00", inv));
-                }
-                sb.Append('\n');
+            state.State = experiment != null ? experiment.State : FlowState.FreeControl;
 
-                var menu = freeControl.Menu;
-                foreach (var def in ParameterDefs.All)
-                {
-                    sb.Append(menu.Current == def.Item ? "> " : "  ");
-                    sb.Append(def.Label.PadRight(12)).Append(def.Format(m.GetValue(def.Item))).Append('\n');
-                }
-            }
+            if (freeControl != null) state.CopyFrom(freeControl.Model, freeControl.Menu.Cursor);
 
-            if (experiment != null && experiment.Saturation != null)
-            {
-                var c = experiment.Saturation.Current;
-                sb.Append(string.Format(inv, "Out  b {0:+0.00;-0.00;0.00}  c {1:+0.00;-0.00;0.00}  s {2:+0.00;-0.00;0.00}\n",
-                    c.Brightness, c.Contrast, c.Saturation));
-            }
+            var saturation = experiment != null ? experiment.Saturation : null;
+            state.Output = saturation != null ? saturation.Current : ColorAdjustment.Neutral;
 
-            sb.Append("Passthrough: ").Append(PassthroughStatus()).Append('\n');
-
-            if (experiment != null)
-            {
-                // 試行数は確定済みの被験者のもの。変えたばかりで未確定の ID は別に示す
-                int current = sessionLogger != null ? sessionLogger.ParticipantId : CurrentParticipant();
-                int pending = sessionLogger != null ? sessionLogger.PendingParticipantId : -1;
-                sb.Append("Participant P").Append(current.ToString("000", inv));
-                if (pending >= 0 && pending != current) sb.Append(" -> P").Append(pending.ToString("000", inv)).Append(" (pending)");
-                sb.Append("   Trials ").Append(experiment.Flow.TrialIndex.ToString(inv)).Append('\n');
-            }
-
-            if (sessionLogger != null)
-                sb.Append("Log: ").Append(string.IsNullOrEmpty(sessionLogger.FileName) ? "(off)" : sessionLogger.FileName).Append('\n');
-
-            sb.Append("Stick: item/value  Click: default  B: play, hold stop\n");
-            sb.Append("Y: hide  X: recall  Menu hold: back to selection");
-            return sb.ToString();
-        }
-
-        private int CurrentParticipant() => freeControl != null ? freeControl.Model.Settings.ParticipantId : 0;
-
-        private string PassthroughStatus()
-        {
-            string init;
-            if (!OVRManager.IsInsightPassthroughSupported()) init = "unsupported";
-            else if (OVRManager.HasInsightPassthroughInitFailed()) init = "init FAILED";
-            else if (OVRManager.IsInsightPassthroughInitPending()) init = "starting";
-            else if (OVRManager.IsInsightPassthroughInitialized()) init = "ready";
-            else init = "off";
-
+            state.Passthrough = PassthroughInitState();
             var layer = experiment != null ? experiment.PassthroughLayer : null;
-            string layerState = layer == null ? "no layer" : layer.enabled ? "layer on" : "layer off";
-            return init + ", " + layerState;
+            state.HasLayer = layer != null;
+            state.LayerEnabled = layer != null && layer.enabled;
+            state.PassthroughVisible = sessionLogger != null ? sessionLogger.PassthroughVisible : state.LayerEnabled;
+
+            // 試行数と被験者は、確定済みの被験者のもの。変えたばかりで未確定の ID は別に持つ
+            int settingsId = freeControl != null ? freeControl.Model.Settings.ParticipantId : 0;
+            state.ParticipantId = sessionLogger != null ? sessionLogger.ParticipantId : settingsId;
+            state.PendingParticipantId = sessionLogger != null ? sessionLogger.PendingParticipantId : -1;
+            state.Trials = experiment != null ? experiment.Flow.TrialIndex : 0;
+            state.LogFile = sessionLogger != null ? sessionLogger.FileName : "";
+            state.LogFailed = sessionLogger != null && sessionLogger.Failed;
+
+            state.MenuHoldProgress = shortcuts != null ? shortcuts.MenuHoldProgress : 0f;
+            state.StopHoldProgress = shortcuts != null ? shortcuts.StopHoldProgress : 0f;
+
+            float now = Time.unscaledTime;
+            if (force || now >= nextSlowRefresh)
+            {
+                nextSlowRefresh = now + 1f;
+                // Android では電池の問い合わせが JNI 呼び出しになるので、1 秒に 1 回だけ読む
+                state.BatteryLevel = SystemInfo.batteryLevel;
+                var bs = SystemInfo.batteryStatus;
+                state.Charging = bs == BatteryStatus.Charging || bs == BatteryStatus.Full;
+                var clock = DateTime.Now;
+                int minute = clock.Hour * 60 + clock.Minute;
+                if (minute != lastMinute)
+                {
+                    lastMinute = minute;
+                    state.Clock = clock.ToString("HH:mm", CultureInfo.InvariantCulture);
+                }
+            }
+        }
+
+        private static PassthroughInit PassthroughInitState()
+        {
+            if (!OVRManager.IsInsightPassthroughSupported()) return PassthroughInit.Unsupported;
+            if (OVRManager.HasInsightPassthroughInitFailed()) return PassthroughInit.Failed;
+            if (OVRManager.IsInsightPassthroughInitPending()) return PassthroughInit.Starting;
+            if (OVRManager.IsInsightPassthroughInitialized()) return PassthroughInit.Ready;
+            return PassthroughInit.Off;
+        }
+
+        // ---------------------------------------------------------------- 通知
+
+        /// <summary>前のフレームとの違いから通知を出す。再生・一時停止・停止は波形カードに常に出ているので通知しない。</summary>
+        private void Notify(bool reset)
+        {
+            if (reset)
+            {
+                lastCommittedParticipant = state.ParticipantId;
+                lastLogFailed = state.LogFailed;
+                lastPlayback = state.Playback;
+                markerPresses = 0;
+                markerRun = 0;
+                resetDetail = null;
+                return;
+            }
+
+            // このフレームに起きたことを集めてから、いちばん大事な1つだけを出す（選び方は PanelNotices）
+            var e = new NoticeEvents
+            {
+                LogJustFailed = state.LogFailed && !lastLogFailed,
+                LogFailed = state.LogFailed,
+                Committed = state.ParticipantId != lastCommittedParticipant,
+                ParticipantId = state.ParticipantId,
+                MarkerPresses = markerPresses,
+                MarkerAt = double.NaN,
+                RampFinished = state.Playback == PlaybackStatus.Finished && lastPlayback != PlaybackStatus.Finished && state.Mode == FreeMode.Auto,
+                RampTo = state.Get(MenuItem.To),
+                ToastVisible = view.ToastMessage != null,
+            };
+            lastLogFailed = state.LogFailed;
+            lastCommittedParticipant = state.ParticipantId;
+            lastPlayback = state.Playback;
+            markerPresses = 0;
+
+            // マーカーは、SessionLogger がこのフレームに行を書いたときだけ「記録した」と出す（時刻も CSV と同じ）
+            if (e.MarkerPresses > 0 && sessionLogger != null && sessionLogger.LastMarkerFrame == Time.frameCount)
+                e.MarkerAt = sessionLogger.LastMarkerRealtime;
+            if (markerMessage != null && string.Equals(view.ToastMessage, markerMessage)) e.VisibleMarkerRun = markerRun;
+
+            if (resetDetail != null)
+            {
+                e.ResetDef = ResetItem(resetDetail);
+                resetDetail = null;
+                if (e.ResetDef != null)
+                {
+                    e.ResetBefore = previousValues[(int)e.ResetDef.Item];
+                    e.ResetAfter = state.Get(e.ResetDef.Item);
+                }
+            }
+
+            var notice = PanelNotices.Choose(e);
+            if (notice.IsNone) return;
+            view.ShowNotice(notice);
+            if (notice.Kind == NoticeKind.Marker)
+            {
+                markerRun = notice.MarkerRun;
+                markerMessage = notice.Message;
+            }
+        }
+
+        /// <summary>param_change の detail（item=Period;value=...;how=reset）から項目を読む。</summary>
+        private static ParameterDef ResetItem(string detail)
+        {
+            foreach (var def in ParameterDefs.All)
+                if (detail.StartsWith(FreeControlEvents.ItemPrefix(def.Item), StringComparison.Ordinal)) return def;
+            return null;
         }
     }
 }

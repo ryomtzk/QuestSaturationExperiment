@@ -54,6 +54,12 @@ namespace QuestSaturation.Core
         public bool Repeats => Kind == ParameterKind.Float;
 
         /// <summary>
+        /// スティックの押し込みで既定値に戻せるか。被験者 ID は戻さない（誤って押すと P000 が保留になり、
+        /// 次の操作でそのまま P000 のログが始まってしまうため）。
+        /// </summary>
+        public bool Resettable => Item != MenuItem.ParticipantId;
+
+        /// <summary>
         /// 不正値を補正する。NaN と無限大は既定値に、範囲外は端に、Int と Enum は整数に丸める。
         /// Float は刻みに丸めない（保存された値をそのまま使えるように）。
         /// </summary>
