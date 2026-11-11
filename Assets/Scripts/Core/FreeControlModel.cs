@@ -119,10 +119,11 @@ namespace QuestSaturation.Core
             return SetValue(item, def.Adjust(GetValue(item), direction), isReset: false);
         }
 
-        /// <summary>スティック押し込み。その項目を既定値に戻す。値が変わったら true。</summary>
+        /// <summary>スティック押し込み。その項目を既定値に戻す（戻せない項目は何もしない）。値が変わったら true。</summary>
         public bool ResetToDefault(MenuItem item)
         {
             var def = ParameterDefs.Get(item);
+            if (!def.Resettable) return false;
             return SetValue(item, def.Default, isReset: true);
         }
 

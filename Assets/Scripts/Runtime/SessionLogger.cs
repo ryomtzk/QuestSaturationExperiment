@@ -62,6 +62,15 @@ namespace QuestSaturation
         public string FilePath { get; private set; } = "";
         public bool Failed => failed;
 
+        /// <summary>
+        /// 最後に書いたマーカー行の t_realtime_s と、書いたフレーム（パネルの通知で、CSV と同じ時刻を出すため）。
+        /// 行が書けなかったときは更新しない（フレームが今のフレームでなければ、そのマーカーは書かれていない）。
+        /// </summary>
+        public double LastMarkerRealtime { get; private set; } = double.NaN;
+        public int LastMarkerFrame { get; private set; } = -1;
+
+        private double filledRealtime;
+
         /// <summary>レイヤーが有効で、有効にしてから一度でも描画が再開された（passthroughLayerResumed が来た）。</summary>
         public bool PassthroughVisible
         {
@@ -260,6 +269,7 @@ namespace QuestSaturation
         {
             row.Clear();
             float now = Time.time;
+            filledRealtime = Time.realtimeSinceStartupAsDouble;
             var flow = experiment != null ? experiment.Flow : null;
             var state = flow != null ? flow.State : FlowState.Selection;
             bool trial = state == FlowState.Trial;
@@ -267,7 +277,7 @@ namespace QuestSaturation
             row.Set(CsvColumn.SessionId, sessionId)
                .Set(CsvColumn.ParticipantId, fileParticipantId)
                .Set(CsvColumn.WallClockUtc, CsvFormat.Utc(DateTime.UtcNow))
-               .Set(CsvColumn.TRealtimeSec, Time.realtimeSinceStartupAsDouble)
+               .Set(CsvColumn.TRealtimeSec, filledRealtime)
                .Set(CsvColumn.TGameSec, now)
                .Set(CsvColumn.Frame, Time.frameCount)
                .Set(CsvColumn.UnscaledDt, Time.unscaledDeltaTime)
@@ -447,7 +457,11 @@ namespace QuestSaturation
         private void OnMarker()
         {
             CommitParticipant();
+            bool open = writer != null;
             WriteEvent("marker", "", echo: true);
+            if (!open || writer == null) return; // 書く前から閉じていたか、書けずに止まった
+            LastMarkerRealtime = filledRealtime;
+            LastMarkerFrame = Time.frameCount;
         }
 
         private void OnHmdMounted() => WriteEvent("hmd_mounted", "", echo: true);

@@ -38,6 +38,9 @@ namespace QuestSaturation
 
         public float MenuHoldProgress => menuButton != null ? menuButton.HoldProgress(Time.unscaledTime) : 0f;
 
+        /// <summary>右B 長押し（停止）の進み具合（0〜1）。パネルの表示用。</summary>
+        public float StopHoldProgress => bButton != null ? bButton.HoldProgress(Time.unscaledTime) : 0f;
+
         void Awake()
         {
             menuButton = new TapOrHoldDetector(menuHoldSec, tapEnabled: false);

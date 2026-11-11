@@ -128,6 +128,25 @@ namespace QuestSaturation.Tests
         }
 
         [Test]
+        public void AClickDoesNotResetTheParticipantId()
+        {
+            // 誤って押すと P000 が保留になり、次の操作でそのまま P000 のログが始まってしまう
+            var m = Make();
+            m.Enter(m.Target);
+            Settle(m);
+            Assert.That(m.Adjust(MenuItem.ParticipantId, +1), Is.True);
+            int id = m.Settings.ParticipantId;
+            Assert.That(id, Is.Not.EqualTo((int)ParameterDefs.Get(MenuItem.ParticipantId).Default));
+            Assert.That(m.ResetToDefault(MenuItem.ParticipantId), Is.False);
+            Assert.That(m.Settings.ParticipantId, Is.EqualTo(id));
+            Assert.That(m.IsTransitioning, Is.False);
+
+            // ほかの項目はすべて戻せる
+            foreach (var def in ParameterDefs.All)
+                Assert.That(def.Resettable, Is.EqualTo(def.Item != MenuItem.ParticipantId), def.Item.ToString());
+        }
+
+        [Test]
         public void ModeIsAMenuItem()
         {
             var m = Make();

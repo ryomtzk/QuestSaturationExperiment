@@ -18,7 +18,7 @@ Every session is written to a CSV log on the headset.
 
 ## Requirements
 
-Unity 6000.3.7f1 / URP 17.3 / Meta XR SDK 201.0.0 / OpenXR 1.16 / Meta Quest 3 (Android build). Controllers are required (hand tracking is off).
+Unity 6000.3.7f1 / URP 17.3 / Meta XR SDK 207.0.1 / OpenXR 1.16 / Meta Quest 3 (Android build). Controllers are required (hand tracking is off).
 
 ## Experiment
 
@@ -42,7 +42,7 @@ Hold the **left ☰ (menu)** button for 1.5 s in Selection to enter FreeControl,
 |---|---|
 | Right stick up / down | Select a parameter |
 | Right stick left / right | Change the value. Decimal values repeat while held; Steps and Participant change one step per push |
-| Right stick click | Reset the selected parameter to its default |
+| Right stick click | Reset the selected parameter to its default (not Participant, so a stray click cannot switch the log to P000) |
 | Right B (tap) | Play / pause the waveform (switches Manual to Auto) |
 | Right B (hold 1 s) | Stop and rewind |
 | Left Y | Show / hide the panel |
@@ -70,11 +70,30 @@ Hold the **left ☰ (menu)** button for 1.5 s in Selection to enter FreeControl,
 - Parameters and the participant ID are saved on the headset and restored on the next launch. Mode and playback state are not saved.
 - **Photosensitivity**: Auto mode changes the whole field of view. Check participants for photosensitivity before using it. The period cannot be shorter than 1 s.
 
-The panel is shown only in FreeControl. It is hidden whenever Selection or a trial starts.
+### Operator panel
+
+![Operator panel in Auto mode](docs/images/operator_panel_auto.png)
+
+The panel is shown only in FreeControl. It is hidden whenever Selection or a trial starts. It appears about 0.8 m in front of you, a little below eye level, tilted to face you. **Left X** brings it back in front of you and **left Y** hides it. It covers part of the view, so hide it while you judge colors.
+
+- **Parameters (left)**: the right stick moves the highlight. On the selected row the arrows dim at the end of the range. The short tick on each bar marks the default. Steps is grayed out unless the waveform is Step. **AUTO** on Saturation means the waveform is driving saturation instead of this value. **PENDING** on Participant means a new ID that is not in the log yet (see [Session logs](#session-logs-csv)).
+- **Output**: the values sent to the passthrough layer right now, including the 0.5 s fade (**Fading**).
+- **Waveform**: one period of the shape selected on the left, and whether it is playing. In Auto it shows the playhead and the elapsed time.
+- **Session**: the participant being logged, the number of trials and when the current log file started. The strip below shows the next participant ID while it is pending, or what to do if logging has stopped.
+- **Header**: passthrough, log, headset battery and the time. Green means OK, amber means wait or check, red means a problem. Passthrough turns green only after the camera image is actually showing.
+- **Footer**: what the stick does on the selected row, and the buttons.
+
+Short notices cover the footer hint for a few seconds: a marker was logged (with its `t_realtime_s`, so you can find the row in the CSV), a value was reset (with the old value, in case the click was an accident), a new participant's log started, a Ramp finished, or logging stopped. One notice shows at a time and a new one replaces it; when a marker or a reset is what starts a new participant's log, the notice says both. The Ramp notice does not replace another notice, because the Waveform card already says FINISHED. When logging has stopped or no log file is open, markers and participant changes say that they were not recorded; the marker time shown is the one written to the CSV. While you hold **right B** or **left ☰**, a bar across the top fills up and says what happens if you let go now.
+
+![Operator panel with warnings](docs/images/operator_panel_attention.png)
+
+*Several warnings at once: passthrough still starting, logging stopped, low headset battery, a pending participant ID and a fade in progress. When the status items need the room, the version number is hidden.*
+
+The panel is gray; color is used only for status. It uses no images (shapes are generated in code, and text uses the TextMesh Pro font atlas), and its inside is fully opaque, so passthrough never shows through it.
 
 ## Session logs (CSV)
 
-Files are written to `Android/data/com.ryomtzk.questsaturationexperiment/files/sessions/session_<UTC time>_P<participant>.csv`. A new file starts at each launch and whenever the participant ID changes. Stepping through IDs does nothing yet: the change takes effect at the next change to another item (not Participant), play / pause / stop, marker, or when you leave FreeControl. Until then the panel shows it as pending (`P007 -> P008 (pending)`). Going back to the original ID before then changes nothing. A new participant's trials are numbered from 1; going back to an ID already used in this launch continues its numbering. After a relaunch numbering starts from 1 again, so use `session_id` to tell files apart.
+Files are written to `Android/data/com.ryomtzk.questsaturationexperiment/files/sessions/session_<UTC time>_P<participant>.csv`. A new file starts at each launch and whenever the participant ID changes. Stepping through IDs does nothing yet: the change takes effect at the next change to another item (not Participant), play / pause / stop, marker, or when you leave FreeControl. Until then the panel marks the Participant row **PENDING** and the Session card shows `Next: P008 • pending`. Going back to the original ID before then changes nothing. A new participant's trials are numbered from 1; going back to an ID already used in this launch continues its numbering. After a relaunch numbering starts from 1 again, so use `session_id` to tell files apart.
 
 - Sample rows: every frame during a trial, 10 per second otherwise. Written to disk every second.
 - Event rows: written to disk immediately. If the app crashes, at most about 1 s of samples is lost.
@@ -117,20 +136,20 @@ adb logcat -s Unity | grep QSE
 
 ## Project layout
 
-- `Assets/Scripts/Core`: pure logic with no OVR dependency (experiment profile and flow, waveforms, FreeControl model, input rules, settings and CSV format). Covered by EditMode tests.
-- `Assets/Scripts/Runtime`: MonoBehaviours that connect Core to OVR and the scene (`ExperimentManager`, `SaturationController`, `ConditionSelector`, `SphereOption`, `FreeControlController`, `SettingsStore`, `SessionLogger`, `OperatorPanel`, `ControllerShortcuts`).
-- `Assets/Scripts/Editor`: Setup Scene, Validate Scene and Build Quest APK under the **QuestSaturation** menu.
+- `Assets/Scripts/Core`: pure logic with no OVR dependency (experiment profile and flow, waveforms, FreeControl model, input rules, settings and CSV format, the operator panel's text and status rules in `PanelPresenter`, and which notice it shows in `PanelNotices`). Covered by EditMode tests.
+- `Assets/Scripts/Runtime`: MonoBehaviours that connect Core to OVR and the scene (`ExperimentManager`, `SaturationController`, `ConditionSelector`, `SphereOption`, `FreeControlController`, `SettingsStore`, `SessionLogger`, `OperatorPanel`, `ControllerShortcuts`). `Runtime/UI` draws the operator panel with uGUI and TextMesh Pro.
+- `Assets/Scripts/Editor`: Setup Scene, Validate Scene, Build Quest APK, Capture Operator Panel Previews and Import TextMeshPro Essentials under the **QuestSaturation** menu.
 - `Assets/Tests/EditMode`: tests (Window > General > Test Runner > EditMode).
 
 ## Setup and build
 
 1. Open the project in Unity 6000.3.7f1 and let packages resolve.
 2. Open `Assets/Scenes/PassthroughScene.unity` and switch the build target to Android.
-3. **QuestSaturation > Validate Scene**. If it reports problems, run **QuestSaturation > Setup Scene**.
+3. **QuestSaturation > Validate Scene**. If it reports problems, run **QuestSaturation > Setup Scene**. The panel uses TextMesh Pro, whose essential resources are in `Assets/TextMesh Pro`. If Validate Scene says they are missing, run **QuestSaturation > Import TextMeshPro Essentials**.
 4. **QuestSaturation > Build Quest APK** builds to `~/Downloads/QuestBuilds/QuestSaturationExperiment_operator.apk`. It does not install. An existing APK is not overwritten; a time stamp is added to the new one.
 5. Install with `adb install -r <apk>`.
 
-Passthrough cannot be previewed in the Editor, so check on the device.
+Passthrough cannot be previewed in the Editor, so check on the device. To see the operator panel without a headset, run **QuestSaturation > Capture Operator Panel Previews**. It checks the panel and updates the images in `docs/images`.
 
 From the command line (`UNITY` is the Unity 6000.3.7f1 executable):
 
@@ -139,6 +158,14 @@ From the command line (`UNITY` is the Unity 6000.3.7f1 executable):
 "$UNITY" -batchmode -nographics -projectPath . -buildTarget Android -executeMethod QuestSaturation.Editor.SceneValidator.RunBatch -quit
 "$UNITY" -batchmode -nographics -projectPath . -buildTarget Android -executeMethod QuestSaturation.Editor.BuildScript.BuildQuestApk -quit
 ```
+
+To check the operator panel from the command line (close the editor first):
+
+```bash
+tools/capture_panel_previews.sh
+```
+
+The script runs `-executeMethod QuestSaturation.Editor.OperatorPanelPreview.RunBatch` in batch mode. The preview draws with the GPU, so it does not use `-nographics`. It checks every sample state and writes the two README images (`docs/images/operator_panel_auto.png` and `operator_panel_attention.png`). Given a folder (`tools/capture_panel_previews.sh <folder>`, relative to where you run it, or `-previewOut <folder>` when calling Unity directly), it writes every sample state there instead, plus images at the Quest 3 eye-buffer density (`_device` at dynamic resolution 1.0, `_floor` at its 0.7 minimum). The checks: the inside of the panel is fully opaque; no text is cut off; every possible notice fits its box; in the states where nothing is moving, no text overlaps another element anywhere on the panel (the hold bar and notices may cover what is under them completely, but not partly); and only the allowed glyphs and shaders are used. The opacity and overlap checks are also run on deliberate test cases. The opacity check must read alpha 0 outside the panel and about 0.5 on a half-transparent swatch. The overlap check must report a text, a shape drawn under the text, a shape drawn over it (even one covering its full height or all of it), a shape in a nested canvas and a partly covering overlay, and must not report a background band, a shape hidden under such a band, or a fully covering overlay. If one of these checks stops working, that shows up as a problem. Exit code: 0 = OK, 1 = problems (listed after `[QSE-TOOL] preview:`), 2 = no GPU. The editor sometimes aborts while shutting down (exit code 134) after the work is done, so the script returns the result from the log line `preview finished with exit code N`. Read that line when calling Unity directly.
 
 ## Notes
 

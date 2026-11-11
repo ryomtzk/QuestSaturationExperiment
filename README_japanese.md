@@ -18,7 +18,7 @@ Meta Quest 3 のパススルー映像全体の明るさ・コントラスト・�
 
 ## 動作環境
 
-Unity 6000.3.7f1 / URP 17.3 / Meta XR SDK 201.0.0 / OpenXR 1.16 / Meta Quest 3（Android ビルド）。コントローラーが必要です（ハンドトラッキングは無効にしています）。
+Unity 6000.3.7f1 / URP 17.3 / Meta XR SDK 207.0.1 / OpenXR 1.16 / Meta Quest 3（Android ビルド）。コントローラーが必要です（ハンドトラッキングは無効にしています）。
 
 ## 実験
 
@@ -42,7 +42,7 @@ Selection 中に **左☰（メニュー）** ボタンを 1.5 秒長押しす�
 |---|---|
 | 右スティック 上 / 下 | 項目を選ぶ |
 | 右スティック 左 / 右 | 値を変える。小数の項目は押し続けるとリピート。Steps と Participant は倒すたびに 1 つずつ |
-| 右スティック 押し込み | 選んでいる項目を既定値に戻す |
+| 右スティック 押し込み | 選んでいる項目を既定値に戻す（Participant は戻しません。誤って押しても P000 のログに切り替わらないように） |
 | 右B（タップ） | 波形の再生 / 一時停止（Manual なら Auto に切り替えて再生） |
 | 右B（1 秒長押し） | 停止して先頭に戻す |
 | 左Y | パネルの表示 / 非表示 |
@@ -70,11 +70,30 @@ Selection 中に **左☰（メニュー）** ボタンを 1.5 秒長押しす�
 - 各項目と被験者 ID はヘッドセットに保存され、次の起動時に戻ります。モードと再生状態は保存しません。
 - **光過敏性への注意**：Auto は視野全体を変化させます。使う前に、被験者に光過敏性がないか確認してください。周期は 1 秒より短くできません。
 
-パネルは FreeControl 中だけ表示されます。Selection や試行が始まるときには必ず隠れます。
+### オペレーターパネル
+
+![Auto モードのオペレーターパネル](docs/images/operator_panel_auto.png)
+
+パネルは FreeControl 中だけ表示されます。Selection や試行が始まるときには必ず隠れます。目の前およそ 0.8 m、目の高さより少し下に、こちらへ傾けて出ます。**左X** で目の前に呼び戻し、**左Y** で隠せます。視野の一部をふさぐので、色の見え方を判断するときは隠してください。
+
+- **項目（左）**：右スティックで選ぶ行を動かします。選んでいる行の矢印は、範囲の端まで来ると薄くなります。バーの短い縦線は既定値の位置です。Steps は波形が Step のときだけ使うので、それ以外では薄く表示します。Saturation の **AUTO** は、この値ではなく波形が彩度を動かしていることを示します。Participant の **PENDING** は、まだログに反映されていない新しい ID があることを示します（[セッションログ](#セッションログcsv)を参照）。
+- **Output**：いまパススルーのレイヤーに送っている値です。0.5 秒の切り替え中は **Fading** と出ます。
+- **Waveform**：左で選んでいる波形の1周期分と、再生の状態です。Auto では再生位置と経過時間を表示します。
+- **Session**：ログに記録中の被験者、試行数、いまのログファイルの記録開始時刻です。下の帯には、確定待ちの次の被験者 ID か、ログが止まったときの対処を表示します。
+- **ヘッダー**：パススルー、ログ、ヘッドセットの電池残量、時刻。緑は正常、黄は待ちか要確認、赤は問題があることを示します。パススルーが緑になるのは、カメラの映像が実際に映ってからです。
+- **フッター**：選んでいる行でスティックが何をするかと、ボタンの一覧です。
+
+次のときは、フッターの説明の上に短い通知が数秒出ます。マーカーを入れたとき（CSV の行を探せるよう `t_realtime_s` を表示）、値を既定値に戻したとき（誤って押したときのために元の値も表示）、新しい被験者のログが始まったとき、Ramp が終わったとき、ログが止まったとき。通知は一度に1つで、新しい通知が前の通知を置き換えます。マーカーや値のリセットで新しい被験者のログが始まったときは、1つの通知に両方を書きます。Ramp の終わりは波形カードに FINISHED と出ているので、ほかの通知を消してまでは出しません。ログが止まった後や、ログのファイルが無いときは、マーカーや被験者の切り替えについて「記録されていない」と表示します。マーカーの時刻は、CSV に書いた時刻です。**右B** や **左☰** を長押ししている間は、上端の帯が伸びていき、いま離すと何が起きるかを表示します。
+
+![警告が出ているオペレーターパネル](docs/images/operator_panel_attention.png)
+
+*警告がいくつも重なったところ。パススルーの起動待ち、ログの停止、ヘッドセットの電池の残りわずか、確定待ちの被験者 ID、切り替え中の表示が出ています。状態の表示に場所が要るときは、版の表示を隠します。*
+
+パネルは灰色だけで描き、色は状態の表示にだけ使います。画像は使わず（図形はコードで描き、文字は TextMesh Pro のフォントアトラスで描きます）、パネルの内側は完全に不透明なので、パススルーが透けて見えることはありません。
 
 ## セッションログ（CSV）
 
-保存先は `Android/data/com.ryomtzk.questsaturationexperiment/files/sessions/session_<UTC時刻>_P<被験者ID>.csv` です。起動するたびに新しいファイルを作ります。被験者 ID を変えたときも新しいファイルになります。ID を送っている間は、まだ切り替わりません。切り替わるのは、次にほかの項目（Participant 以外）を変えたとき、再生・一時停止・停止をしたとき、マーカーを入れたとき、FreeControl を出たときです。それまでパネルには `P007 -> P008 (pending)` のように表示されます。その前に元の ID に戻せば、何も変わりません。新しい被験者の試行番号は 1 から数えます。この起動中に使った ID に戻ったときは、その続きから数えます。アプリを起動し直すと 1 からになるので、ファイルの区別には `session_id` を使ってください。
+保存先は `Android/data/com.ryomtzk.questsaturationexperiment/files/sessions/session_<UTC時刻>_P<被験者ID>.csv` です。起動するたびに新しいファイルを作ります。被験者 ID を変えたときも新しいファイルになります。ID を送っている間は、まだ切り替わりません。切り替わるのは、次にほかの項目（Participant 以外）を変えたとき、再生・一時停止・停止をしたとき、マーカーを入れたとき、FreeControl を出たときです。それまでパネルでは、Participant の行に **PENDING** が付き、Session カードに `Next: P008 • pending` と表示されます。その前に元の ID に戻せば、何も変わりません。新しい被験者の試行番号は 1 から数えます。この起動中に使った ID に戻ったときは、その続きから数えます。アプリを起動し直すと 1 からになるので、ファイルの区別には `session_id` を使ってください。
 
 - サンプル行：試行中は毎フレーム、それ以外は毎秒 10 行。1 秒ごとにディスクへ書き出します。
 - イベント行：その場でディスクへ書き出します。アプリが異常終了しても、失われるサンプルは最大でおよそ 1 秒分です。
@@ -117,20 +136,20 @@ adb logcat -s Unity | grep QSE
 
 ## フォルダ構成
 
-- `Assets/Scripts/Core`：OVR に依存しない純粋なロジック（実験プロファイルと進行、波形、FreeControl のモデル、入力の規則、設定と CSV の書式）。EditMode テストで確認しています。
-- `Assets/Scripts/Runtime`：Core を OVR とシーンにつなぐ MonoBehaviour（`ExperimentManager`、`SaturationController`、`ConditionSelector`、`SphereOption`、`FreeControlController`、`SettingsStore`、`SessionLogger`、`OperatorPanel`、`ControllerShortcuts`）。
-- `Assets/Scripts/Editor`：**QuestSaturation** メニューの Setup Scene、Validate Scene、Build Quest APK。
+- `Assets/Scripts/Core`：OVR に依存しない純粋なロジック（実験プロファイルと進行、波形、FreeControl のモデル、入力の規則、設定と CSV の書式、オペレーターパネルの文言と状態表示の規則を決める `PanelPresenter`、どの通知を出すかを決める `PanelNotices`）。EditMode テストで確認しています。
+- `Assets/Scripts/Runtime`：Core を OVR とシーンにつなぐ MonoBehaviour（`ExperimentManager`、`SaturationController`、`ConditionSelector`、`SphereOption`、`FreeControlController`、`SettingsStore`、`SessionLogger`、`OperatorPanel`、`ControllerShortcuts`）。`Runtime/UI` は、uGUI と TextMesh Pro でオペレーターパネルを描きます。
+- `Assets/Scripts/Editor`：**QuestSaturation** メニューの Setup Scene、Validate Scene、Build Quest APK、Capture Operator Panel Previews、Import TextMeshPro Essentials。
 - `Assets/Tests/EditMode`：テスト（Window > General > Test Runner > EditMode）。
 
 ## セットアップとビルド
 
 1. Unity 6000.3.7f1 でプロジェクトを開き、パッケージの解決を待ちます。
 2. `Assets/Scenes/PassthroughScene.unity` を開き、ビルドターゲットを Android にします。
-3. **QuestSaturation > Validate Scene** を実行します。問題が表示されたら **QuestSaturation > Setup Scene** を実行します。
+3. **QuestSaturation > Validate Scene** を実行します。問題が表示されたら **QuestSaturation > Setup Scene** を実行します。パネルは TextMesh Pro を使います。必要なリソースは `Assets/TextMesh Pro` に入っています。Validate Scene がリソースが無いと報告したら、**QuestSaturation > Import TextMeshPro Essentials** を実行してください。
 4. **QuestSaturation > Build Quest APK** で `~/Downloads/QuestBuilds/QuestSaturationExperiment_operator.apk` にビルドします。インストールはしません。同名の APK がある場合は上書きせず、新しいほうに日時を付けます。
 5. `adb install -r <apk>` でインストールします。
 
-エディタではパススルーを再生できないため、動作は実機で確認してください。
+エディタではパススルーを再生できないため、動作は実機で確認してください。ヘッドセットなしでオペレーターパネルを確かめるときは、**QuestSaturation > Capture Operator Panel Previews** を実行します。パネルを検査し、`docs/images` の画像を更新します。
 
 コマンドラインから実行する場合（`UNITY` は Unity 6000.3.7f1 の実行ファイル）：
 
@@ -139,6 +158,14 @@ adb logcat -s Unity | grep QSE
 "$UNITY" -batchmode -nographics -projectPath . -buildTarget Android -executeMethod QuestSaturation.Editor.SceneValidator.RunBatch -quit
 "$UNITY" -batchmode -nographics -projectPath . -buildTarget Android -executeMethod QuestSaturation.Editor.BuildScript.BuildQuestApk -quit
 ```
+
+オペレーターパネルをコマンドラインで確かめるときは、エディタを閉じてから次を実行します。
+
+```bash
+tools/capture_panel_previews.sh
+```
+
+このスクリプトは `-executeMethod QuestSaturation.Editor.OperatorPanelPreview.RunBatch` を batchmode で実行します。プレビューは GPU で描くので、`-nographics` は付けません。すべての見本の状態を検査し、README の2枚の画像（`docs/images/operator_panel_auto.png` と `operator_panel_attention.png`）を書き出します。フォルダーを渡すと（`tools/capture_panel_previews.sh <フォルダー>`。相対パスは実行した場所から数えます。Unity を直接呼ぶときは `-previewOut <フォルダー>`）、代わりにそのフォルダーへすべての見本を書き出し、Quest 3 のアイバッファと同じ密度の画像も加えます（動的解像度 1.0 相当の `_device` と、下限 0.7 相当の `_floor`）。検査するのは次のことです。パネルの内側が完全に不透明か。文字が欄からはみ出していないか。出しうる通知の文がすべて通知の欄に収まるか。動きの止まった状態で、パネルのどこでも文字がほかの部品と重なっていないか（長押しの帯と通知は、下にあるものをすっかり覆うのはよく、一部だけかかるのは問題）。決めた字とシェーダーだけを使っているか。不透明さと重なりの検査は、わざと用意した見本でも確かめます。不透明さの検査では、パネルの外のアルファが 0、半透明の見本が約 0.5 と読めること。重なりの検査では、文字、文字の下に描いた図形、上に描いた図形（高さすべてを覆うものや、すっかり覆うものも）、入れ子の Canvas の図形、一部だけかかる上の層を問題として見つけ、下地の帯、その帯に隠れた図形、すっかり覆う上の層は問題にしないこと。そのため、どちらかの検査が働かなくなっていれば、それ自体が問題として出ます。終了コードは 0 = 問題なし、1 = 問題あり（`[QSE-TOOL] preview:` の後に一覧）、2 = GPU が無い、です。処理が終わった後、エディタの終了処理で異常終了することがあります（終了コード 134）。そのためスクリプトは、ログの `preview finished with exit code N` の行から結果を返します。Unity を直接呼ぶときは、この行を見てください。
 
 ## 補足
 

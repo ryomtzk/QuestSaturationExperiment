@@ -75,7 +75,13 @@ namespace QuestSaturation.Editor
             Wire(free, log, ("experiment", manager), ("saturationController", saturation), ("settingsStore", store));
             Wire(shortcuts, log, ("experiment", manager), ("freeControl", free), ("panel", panel));
             Wire(logger, log, ("experiment", manager), ("freeControl", free), ("shortcuts", shortcuts), ("settingsStore", store));
-            Wire(panel, log, ("experiment", manager), ("freeControl", free), ("sessionLogger", logger), ("head", camera.transform));
+            Wire(panel, log, ("experiment", manager), ("freeControl", free), ("sessionLogger", logger), ("shortcuts", shortcuts), ("head", camera.transform));
+
+            // パネルの文字は TextMeshPro で描く。取り込みは非同期なので、ここでは始めずに知らせるだけにする
+            // （シーンの保存と同じ batch の中で取り込むと、終わる前にエディタが終了する）
+            if (!TextMeshProSetup.EssentialsPresent)
+                log.Add("WARNING: TextMeshPro Essentials are missing. Run QuestSaturation > Import TextMeshPro Essentials " +
+                        "(batch: -executeMethod QuestSaturation.Editor.TextMeshProSetup.RunBatch) before building.");
 
             // 球の当たり判定に使うレイヤーが、選択レイのマスクに入っているようにする
             var selSo = new SerializedObject(selector);

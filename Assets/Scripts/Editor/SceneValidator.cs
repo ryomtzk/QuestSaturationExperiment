@@ -110,7 +110,10 @@ namespace QuestSaturation.Editor
             RequireRefs<FreeControlController>(scene, errors, "experiment", "saturationController", "settingsStore");
             RequireRefs<ControllerShortcuts>(scene, errors, "experiment", "freeControl", "panel");
             RequireRefs<SessionLogger>(scene, errors, "experiment", "freeControl", "shortcuts", "settingsStore");
-            RequireRefs<OperatorPanel>(scene, errors, "experiment", "freeControl", "sessionLogger", "head");
+            RequireRefs<OperatorPanel>(scene, errors, "experiment", "freeControl", "sessionLogger", "shortcuts", "head");
+
+            if (!TextMeshProSetup.EssentialsPresent)
+                errors.Add("TextMeshPro Essentials are missing (QuestSaturation > Import TextMeshPro Essentials); the operator panel needs them");
 
             if (!EditorBuildSettings.scenes.Any(s => s.enabled && s.path == SetupScene.ScenePath))
                 errors.Add(SetupScene.ScenePath + " is not enabled in Build Settings");
